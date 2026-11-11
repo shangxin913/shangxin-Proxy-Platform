@@ -61,4 +61,10 @@ grep -q 'APP_NAME="exitpanel"' "$INSTALLER" || { echo "下载的文件不是预�
 chmod 700 "$INSTALLER"
 
 echo "[ExitPanel] 开始部署，后续参数将透传给生产部署器"
-exec "$INSTALLER" --repo "$REPO_URL" --branch "$BRANCH" "$@"
+if [[ -r /dev/tty ]]; then
+  # curl | sudo bash consumes stdin while reading this bootstrap. Reattach
+  # the real terminal so the installer can ask for MANUS_PROJECT_ID/passwords.
+  exec "$INSTALLER" --repo "$REPO_URL" --branch "$BRANCH" "$@" </dev/tty
+else
+  exec "$INSTALLER" --repo "$REPO_URL" --branch "$BRANCH" "$@"
+fi
