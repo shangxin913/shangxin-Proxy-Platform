@@ -4,8 +4,12 @@ umask 077
 
 APP_NAME="exitpanel"
 INSTALL_DIR="${EXITPANEL_INSTALL_DIR:-/opt/exitpanel}"
-REPO_URL="${EXITPANEL_REPO_URL:-}"
-BRANCH="${EXITPANEL_BRANCH:-main}"
+REPO_URL="https://github.com/shangxin913/shangxin-Proxy-Platform.git"
+BRANCH="v1.0.6"
+# Resolve the selected Git tag to its own commit, never track main implicitly.
+SKIP_WORKER=0
+REPLACE_WORKER=0
+WORKER_URL=""
 DOMAIN="${EXITPANEL_DOMAIN:-}"
 ADMIN_EMAIL="${EXITPANEL_ADMIN_EMAIL:-}"
 ADMIN_PORT="${EXITPANEL_ADMIN_PORT:-8899}"
@@ -20,19 +24,24 @@ die() { printf '[ExitPanel][ERROR] %s\n' "$*" >&2; exit 1; }
 
 usage() {
   cat <<'EOF'
-ExitPanel VPS 一键部署（Debian/Ubuntu，管理密码登录独立于 Manus）
-用法：sudo bash deploy-panel.sh --repo https://github.com/<org>/<repo>.git [选项]
+ExitPanel v1.0.6 生产部署（默认安装并接入本机真实检测 worker）
+用法：sudo bash deploy-panel.sh [选项]
 
-  --repo URL       VPS 可访问的 Git 仓库地址，也可用 EXITPANEL_REPO_URL
-  --branch NAME    Git 分支，默认 main
+  --repo URL       Git 仓库，默认 https://github.com/shangxin913/shangxin-Proxy-Platform.git
+  --branch NAME    Git tag/分支，默认固定 tag v1.0.6（不会跟随 main）
+  --skip-worker    不安装/接入本机 worker；未另配真实 worker 时检测不可用，不会 mock
+  --replace-worker 明确允许用本机 worker 替换已有远程 worker
   --dir PATH       安装目录，默认 /opt/exitpanel
   --port PORT      首次初始化管理端口，默认 8899
   --listen ADDR    首次初始化监听 IP，默认 0.0.0.0
-  --host HOST      公网 IP/域名，用于 root 查看完整管理 URL
+  --host IP        显式公网 IP（支持 NAT/IPv6）；默认 ipify 检测，不取管理域名
   --domain NAME    可选：Nginx 80/443 经 Unix socket 代理管理面板
   --email EMAIL    可选：Let's Encrypt 邮箱；提供域名和邮箱才自动申请 HTTPS
   --help, -h      显示帮助（无需 root）
 
+默认从 v1.0.6 tag 解析并校验完整 Git SHA，后续拒绝该 tag 被移动。
+默认在 app 启动前安装健康的 loopback worker 并安全同步 HMAC；不公开 18443。
+本机固定 worker/Compose 服务只支持一个面板；不同 --dir 冲突时停止。
 无需 MANUS_PROJECT_ID 或 Manus OAuth。首次随机生成管理路径和强密码。
 重复安装保留 .env.production 的密钥、MySQL 密码及数据库管理设置。
 后续 port/listen/path/password 请在管理面板修改，而非重复安装参数。
@@ -46,6 +55,8 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) need_value "$@"; REPO_URL="$2"; shift 2 ;;
     --branch) need_value "$@"; BRANCH="$2"; shift 2 ;;
+    --skip-worker) SKIP_WORKER=1; shift ;;
+    --replace-worker) REPLACE_WORKER=1; shift ;;
     --domain) need_value "$@"; DOMAIN="$2"; DOMAIN_GIVEN=1; shift 2 ;;
     --email) need_value "$@"; ADMIN_EMAIL="$2"; shift 2 ;;
     --dir) need_value "$@"; INSTALL_DIR="$2"; shift 2 ;;
@@ -61,11 +72,26 @@ done
 [[ "$ADMIN_PORT" =~ ^[0-9]{1,5}$ ]] && (( 10#$ADMIN_PORT >= 1024 && 10#$ADMIN_PORT <= 65535 )) || die "--port 必须是 1024-65535"
 ADMIN_PORT="$((10#$ADMIN_PORT))"
 [[ -n "$REPO_URL" ]] || die "必须提供 --repo；VPS 不能访问 Manus Sandbox 内部 Git 远端"
-[[ "$REPO_URL" != -* && "$BRANCH" != -* && -n "$BRANCH" ]] || die "仓库或分支参数无效"
+[[ "$REPO_URL" != -* && "$BRANCH" =~ ^[A-Za-z0-9_./-]+$ && "$BRANCH" != -* ]] || die "仓库或分支参数无效"
 [[ "$INSTALL_DIR" =~ ^/[A-Za-z0-9_./-]+$ && "$INSTALL_DIR" != / ]] || die "--dir 须为不含空格的绝对路径，且不能为 /"
 INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
 [[ "$INSTALL_DIR" != / ]] || die "不能安装到 /"
+# A different directory would overwrite global systemd/CLI and local worker.
+for RECORD in /etc/exitpanel/install-dir /etc/exitpanel/local-worker-panel-dir; do
+  if [[ -f "$RECORD" ]]; then
+    IFS= read -r RECORDED_DIR <"$RECORD" || true
+    [[ "$RECORDED_DIR" == /* && "$(realpath -m "$RECORDED_DIR")" == "$INSTALL_DIR" ]] || die "本机面板/worker 已属于另一目录；仅支持单台一个面板，拒绝覆盖 $RECORD"
+  fi
+done
 command -v apt-get >/dev/null || die "当前脚本只支持 Debian/Ubuntu 系统"
+ARCH="$(dpkg --print-architecture)"
+[[ "$ARCH" == amd64 || "$ARCH" == arm64 ]] || die "本部署栈仅支持 amd64/arm64"
+[[ -d /run/systemd/system ]] || die "需要使用 systemd 的 VPS；不支持普通 Docker 容器或无 systemd 系统"
+command -v flock >/dev/null || die "缺少 flock，请先安装 util-linux"
+exec 9>/run/lock/exitpanel-production-deploy.lock
+flock -n 9 || die "已有 ExitPanel 部署在进行中，请勿重复运行"
+trap 'printf "[ExitPanel][ERROR] 部署在第 %s 行停止，请检查错误，不要删除数据卷或密钥后重试。\n" "$LINENO" >&2' ERR
+log "选择应用版本：$BRANCH（默认固定 tag，不会自动使用 main）"
 if [[ -n "$DOMAIN" ]]; then
   [[ "$DOMAIN" =~ ^[A-Za-z0-9]([A-Za-z0-9.-]*[A-Za-z0-9])?$ && "$DOMAIN" == *.* ]] || die "--domain 不是有效域名"
 fi
@@ -84,26 +110,100 @@ fi
 log "安装系统依赖和 Docker（所有随机密钥在 openssl 安装后生成）"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y --no-install-recommends ca-certificates curl git openssl python3 docker.io
-systemctl enable --now docker
-command -v docker >/dev/null || die "Docker 安装失败"
-if ! docker compose version >/dev/null 2>&1; then
-  apt-get install -y --no-install-recommends docker-compose-v2 || apt-get install -y --no-install-recommends docker-compose-plugin || die "Docker Compose v2 安装失败"
+apt-get install -y --no-install-recommends ca-certificates curl git openssl python3
+# Always target this VPS's rootful daemon, never a caller's remote Docker host.
+unset DOCKER_CONTEXT
+export DOCKER_HOST=unix:///var/run/docker.sock
+if ! command -v docker >/dev/null || ! docker compose version >/dev/null 2>&1; then
+  . /etc/os-release
+  [[ "$ID" == ubuntu || "$ID" == debian ]] || die "只支持原生 Debian/Ubuntu，请先安装适合本系统的 Docker 和 Compose 插件"
+  CODENAME="${UBUNTU_CODENAME:-${VERSION_CODENAME:-}}"
+  [[ "$CODENAME" =~ ^[a-z]+$ ]] || die "无法确定发行版代号"
+  # Compose's official apt package is not in every distribution's default repo.
+  # Reuse existing Docker repo declarations rather than creating duplicates.
+  if ! grep -Rsq "https://download.docker.com/linux/$ID" /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null; then
+    install -d -m 0755 /etc/apt/keyrings
+    curl -fLsS --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 "https://download.docker.com/linux/$ID/gpg" -o /etc/apt/keyrings/exitpanel-docker.asc
+    chmod 0644 /etc/apt/keyrings/exitpanel-docker.asc
+    cat >/etc/apt/sources.list.d/exitpanel-docker.sources <<EOF
+Types: deb
+URIs: https://download.docker.com/linux/$ID
+Suites: $CODENAME
+Components: stable
+Architectures: $ARCH
+Signed-By: /etc/apt/keyrings/exitpanel-docker.asc
+EOF
+    chmod 0644 /etc/apt/sources.list.d/exitpanel-docker.sources
+  fi
+  apt-get update -y
+  if command -v docker >/dev/null; then
+    log "保留已有 Docker 引擎，只补装 Compose/Buildx 插件"
+    apt-get install -y --no-install-recommends docker-compose-plugin docker-buildx-plugin || die "插件安装失败；请先人工处理 Docker 包冲突，不会自动卸载旧引擎"
+  else
+    for PACKAGE in podman-docker containerd runc docker.io; do
+      if [[ "$(dpkg-query -W -f='${Status}' "$PACKAGE" 2>/dev/null || true)" == 'install ok installed' ]]; then
+        die "已有可能冲突的 $PACKAGE；请先人工评估，安装器不会卸载其他服务依赖"
+      fi
+    done
+    apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  fi
 fi
-docker compose version >/dev/null || die "Docker Compose v2 安装失败"
+systemctl enable --now docker
+docker info >/dev/null || die "本机 Docker 引擎不可用"
+docker compose version >/dev/null || die "Docker Compose 插件安装失败"
 
 install -d -o root -g root -m 0700 "$INSTALL_DIR"
-if [[ -d "$SRC_DIR/.git" ]]; then
-  log "安全更新已有仓库（仅 fast-forward，不覆盖本地改动）"
-  [[ "$(git -C "$SRC_DIR" branch --show-current)" == "$BRANCH" ]] || die "当前源码分支与 --branch 不同；请自行确认和切换分支后再部署"
-  SOURCE_STATUS="$(git -C "$SRC_DIR" status --porcelain --untracked-files=all)" || die "无法读取源码 Git 状态；停止升级"
-  [[ -z "$SOURCE_STATUS" ]] || die "源码目录变为 dirty；停止升级"
-  git -C "$SRC_DIR" fetch origin "$BRANCH"
-  git -C "$SRC_DIR" merge --ff-only FETCH_HEAD || die "分支无法 fast-forward；请自行处理本地提交，不会 reset --hard"
+# Prefer exact tags; a version-looking ref MUST be a tag. Other branches are
+# accepted only when explicitly selected via --branch.
+REMOTE_REFS="$(git ls-remote "$REPO_URL" "refs/tags/$BRANCH" "refs/tags/$BRANCH^{}" "refs/heads/$BRANCH")" || die "无法读取指定仓库版本"
+TAG_COMMIT="$(awk -v ref="refs/tags/$BRANCH^{}" '$2 == ref {print $1}' <<<"$REMOTE_REFS")"
+TAG_OBJECT="$(awk -v ref="refs/tags/$BRANCH" '$2 == ref {print $1}' <<<"$REMOTE_REFS")"
+HEAD_COMMIT="$(awk -v ref="refs/heads/$BRANCH" '$2 == ref {print $1}' <<<"$REMOTE_REFS")"
+IS_TAG=0
+if [[ -n "$TAG_OBJECT" ]]; then
+  IS_TAG=1
+  SOURCE_REF="refs/tags/$BRANCH"
+  EXPECTED_COMMIT="${TAG_COMMIT:-$TAG_OBJECT}"
 else
-  log "克隆面板代码仓库"
+  [[ ! "$BRANCH" =~ ^v[0-9]+\.[0-9]+ ]] || die "固定版本 tag $BRANCH 尚未发布/不存在，拒绝回退 main 或同名分支"
+  SOURCE_REF="refs/heads/$BRANCH"
+  EXPECTED_COMMIT="$HEAD_COMMIT"
+fi
+[[ "$EXPECTED_COMMIT" =~ ^[0-9a-f]{40}$ ]] || die "所选版本不能解析为完整 Git SHA"
+# Tags are immutable per installation. Store public source identity, not secrets.
+PIN_FILE="$INSTALL_DIR/source-version.tsv"
+if [[ "$IS_TAG" == 1 && -f "$PIN_FILE" ]]; then
+  IFS=$'\t' read -r PIN_REPO PIN_REF PIN_SHA <"$PIN_FILE" || true
+  if [[ "$PIN_REPO" == "$REPO_URL" && "$PIN_REF" == "$SOURCE_REF" ]]; then
+    [[ "$PIN_SHA" == "$EXPECTED_COMMIT" ]] || die "远端 tag 被移动，与本安装已绑定 SHA 不同；拒绝部署"
+  fi
+fi
+log "绑定版本：$SOURCE_REF @ $EXPECTED_COMMIT"
+if [[ -d "$SRC_DIR/.git" ]]; then
+  log "安全拉取选定版本并保留已有历史、数据库和密钥"
+  [[ "$(git -C "$SRC_DIR" remote get-url origin)" == "$REPO_URL" ]] || die "已有 origin 与 --repo 不同；请人工核对，不会无声更换仓库"
+  SOURCE_STATUS="$(git -C "$SRC_DIR" status --porcelain --untracked-files=all)" || die "无法读取源码状态"
+  [[ -z "$SOURCE_STATUS" ]] || die "源码变为 dirty，停止升级"
+  if [[ "$(git -C "$SRC_DIR" rev-parse --is-shallow-repository)" == true ]]; then
+    git -C "$SRC_DIR" fetch --unshallow origin "$SOURCE_REF"
+  else
+    git -C "$SRC_DIR" fetch origin "$SOURCE_REF"
+  fi
+  FETCHED_COMMIT="$(git -C "$SRC_DIR" rev-parse 'FETCH_HEAD^{commit}')"
+  [[ "$FETCHED_COMMIT" == "$EXPECTED_COMMIT" ]] || die "拉取期间远端版本改变，拒绝继续"
+  CURRENT_COMMIT="$(git -C "$SRC_DIR" rev-parse HEAD)"
+  if [[ "$CURRENT_COMMIT" != "$EXPECTED_COMMIT" ]]; then
+    git -C "$SRC_DIR" merge-base --is-ancestor HEAD "$EXPECTED_COMMIT" || die "当前源码包含较新版本或分叉提交，拒绝降级/覆盖"
+    git -C "$SRC_DIR" merge --ff-only "$EXPECTED_COMMIT" || die "不能安全 fast-forward，旧源码保留"
+  fi
+else
+  log "克隆选定版本 $BRANCH（浅克隆）"
   git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$SRC_DIR"
 fi
+[[ "$(git -C "$SRC_DIR" rev-parse HEAD)" == "$EXPECTED_COMMIT" ]] || die "源码 SHA 校验失败；不启动应用"
+printf '%s\t%s\t%s\n' "$REPO_URL" "$SOURCE_REF" "$EXPECTED_COMMIT" >"$PIN_FILE"
+chmod 0600 "$PIN_FILE"
+
 [[ -f "$SRC_DIR/Dockerfile" && -d "$SRC_DIR/drizzle" ]] || die "仓库缺少 Dockerfile 或 drizzle 迁移目录"
 [[ -f "$SRC_DIR/vps/exitpanel" ]] || die "仓库缺少 vps/exitpanel CLI 包装，请使用支持 VPS 密码登录的版本"
 
@@ -117,15 +217,11 @@ if [[ "$DOMAIN_GIVEN" == 0 && -f /etc/nginx/sites-available/exitpanel ]]; then
 fi
 PUBLIC_HOST_FALLBACK=""
 if [[ -z "$PUBLIC_HOST" ]]; then
-  if [[ -n "$DOMAIN" ]]; then
-    PUBLIC_HOST_FALLBACK="$DOMAIN"
-  else
-    PUBLIC_HOST_FALLBACK="$(curl -4fsS --connect-timeout 3 --max-time 8 https://api.ipify.org 2>/dev/null || true)"
-    if [[ -z "$PUBLIC_HOST_FALLBACK" ]]; then
-      PUBLIC_HOST_FALLBACK="$(hostname -I | awk '{print $1}')"
-      warn "无法自动检测公网 IP；必要时回退本机地址 $PUBLIC_HOST_FALLBACK。NAT VPS 请使用 --host 公网IP/域名。"
-    fi
+  PUBLIC_HOST_FALLBACK="$(curl --noproxy '*' -4fsS --proto '=https' --connect-timeout 3 --max-time 8 https://api.ipify.org 2>/dev/null || true)"
+  if [[ -z "$PUBLIC_HOST_FALLBACK" ]]; then
+    PUBLIC_HOST_FALLBACK="$(curl --noproxy '*' -6fsS --proto '=https' --connect-timeout 3 --max-time 8 https://api6.ipify.org 2>/dev/null || true)"
   fi
+  [[ -n "$PUBLIC_HOST_FALLBACK" ]] || warn "公网 IP 检测失败；仅可沿用已保存的有效 IP，否则请使用 --host。不会回退管理域名。"
 fi
 
 export INSTALL_DIR DOMAIN ADMIN_PORT ADMIN_LISTEN PUBLIC_HOST PUBLIC_HOST_FALLBACK
@@ -225,15 +321,15 @@ try:
         raise ValueError('EXITPANEL_DOMAIN 无效')
     if domain:
         set_value('EXITPANEL_DOMAIN', domain)
-    host = os.environ['PUBLIC_HOST'] or values.get('EXITPANEL_PUBLIC_HOST') or domain or os.environ.get('PUBLIC_HOST_FALLBACK', '')
+    host = os.environ['PUBLIC_HOST'] or os.environ.get('PUBLIC_HOST_FALLBACK', '') or values.get('EXITPANEL_PUBLIC_HOST', '')
     if not host:
-        raise ValueError('请提供 --host 公网IP/域名')
+        raise ValueError('请提供 --host VPS公网IP，不能使用管理域名')
     try:
-        ipaddress.ip_address(host.strip('[]'))
+        host = str(ipaddress.ip_address(host.strip('[]')))
     except ValueError:
-        if not re.fullmatch(r'[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?', host):
-            raise ValueError('--host 只能是公网 IP 或域名，不含协议、端口和路径')
+        raise ValueError('--host / EXITPANEL_PUBLIC_HOST 必须是 IP，不含协议、端口、路径或管理域名')
     set_value('EXITPANEL_PUBLIC_HOST', host)
+    set_value('EXITPANEL_ENTRY_HOST', host)
     origin = os.environ.get('EXITPANEL_PUBLIC_ORIGIN') or values.get('EXITPANEL_PUBLIC_ORIGIN', '')
     if not origin and domain:
         tls = all(os.path.isfile('/etc/letsencrypt/live/' + domain + '/' + f) for f in ('fullchain.pem', 'privkey.pem'))
@@ -273,6 +369,25 @@ PUBLIC_HOST="${PUBLIC_FIELDS[1]:-}"
 PUBLIC_ORIGIN="${PUBLIC_FIELDS[2]:-}"
 chmod 0600 "$INSTALL_DIR/.env.production"
 chown root:root "$INSTALL_DIR/.env.production"
+
+if [[ "$SKIP_WORKER" == 0 ]]; then
+  [[ -f "$SRC_DIR/vps/connect-local-worker.sh" ]] || die "所选版本没有同机 worker 接入工具；请使用 v1.0.6 或显式 --skip-worker"
+  WORKER_ARGS=(--dir "$INSTALL_DIR" --host "$PUBLIC_HOST" --configure-only)
+  [[ "$REPLACE_WORKER" == 0 ]] || WORKER_ARGS+=(--replace-worker)
+  log "在 app 启动前安装/检查 loopback worker 并同步 HMAC"
+  bash "$SRC_DIR/vps/connect-local-worker.sh" "${WORKER_ARGS[@]}"
+  # Read public endpoint only; never print or source shared secrets.
+  WORKER_URL="$(INSTALL_DIR="$INSTALL_DIR" python3 - <<'PY'
+import os, re
+text = open(os.path.join(os.environ['INSTALL_DIR'], '.env.production'), encoding='utf-8').read()
+match = re.search(r"^EXITPANEL_WORKER_URL='([^']+)'$", text, re.M)
+if not match: raise SystemExit('缺少接入工具生成的本机 worker URL')
+print(match[1])
+PY
+)"
+else
+  warn "--skip-worker：未安装/接入本机 worker。未另配可用的真实 worker 时真实检测不可用，不会模拟成功。"
+fi
 
 cp "$SRC_DIR/vps/docker-compose.prod.yml" "$INSTALL_DIR/docker-compose.prod.yml"
 install -m 0755 "$SRC_DIR/vps/exitpanel" /usr/local/bin/exitpanel
@@ -315,7 +430,7 @@ systemctl enable --now exitpanel-compose.service
 log "等待 Unix socket 健康检查（不依赖已被管理员修改的管理端口）"
 HEALTHY=0
 for (( attempt=1; attempt<=90; attempt++ )); do
-  if curl -fsS --max-time 3 --unix-socket /run/exitpanel/app.sock http://localhost/api/health >/dev/null 2>&1; then
+  if curl --noproxy '*' -fsS --max-time 3 --unix-socket /run/exitpanel/app.sock http://localhost/api/health >/dev/null 2>&1; then
     HEALTHY=1
     break
   fi
@@ -420,7 +535,7 @@ fi
 log "等待应用就绪并读取数据库中当前管理凭据"
 READY=0
 for (( attempt=1; attempt<=30; attempt++ )); do
-  if curl -fsS --max-time 3 --unix-socket /run/exitpanel/app.sock http://localhost/api/health >/dev/null 2>&1; then
+  if curl --noproxy '*' -fsS --max-time 3 --unix-socket /run/exitpanel/app.sock http://localhost/api/health >/dev/null 2>&1; then
     READY=1
     break
   fi
@@ -429,8 +544,13 @@ done
 [[ "$READY" == 1 ]] || die "应用未就绪；修复后使用 sudo exitpanel credentials 查看当前入口与密码"
 # This explicitly requested root-only output is the DB password, not a dump of
 # .env.production (which may still contain an obsolete bootstrap password).
+if [[ "$SKIP_WORKER" == 0 ]]; then
+  curl --noproxy '*' -fsS --max-time 5 "$WORKER_URL/health" >/dev/null || die "本机 worker 最终健康检查失败"
+  log "app socket 与本机 worker 健康通过，已接入真实检测 worker（非模拟）"
+  warn "worker 接入不代表 Xray/VLESS 代理已可用；Xray、REALITY 密钥和真实入站端口需另行配置并实测。"
+fi
 /usr/local/bin/exitpanel credentials
-log "部署完成；请保存上方随机入口和密码。以后 root 可再次查看/重置："
+log "v1.0.6 部署完成；请保存上方随机入口和密码。以后 root 可再次查看/重置："
 printf '  sudo exitpanel credentials\n  sudo exitpanel reset-password\n'
 printf '安装目录：%s（0700）；生产配置 .env.production（root:root 0600）\n' "$INSTALL_DIR"
 printf '状态：sudo systemctl status exitpanel-compose\n'

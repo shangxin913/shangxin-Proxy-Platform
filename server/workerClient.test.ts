@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { checkWorker, validateWorkerUrl } from "./workerClient";
+import { checkDirectWorker, checkWorker, validateWorkerUrl } from "./workerClient";
 
 const config = { baseUrl: "https://worker.example.test", secret: "unit-test-shared-secret-not-a-production-secret" };
 
@@ -28,5 +28,19 @@ describe("production worker transport", () => {
   it("rejects passed responses with no real IP address", async () => {
     vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({ status: "passed", observedIp: "not-an-ip" }), { status: 200 })));
     await expect(checkWorker({ host: "proxy.example.test", port: 1080 }, config)).rejects.toThrow("无效");
+  });
+  it("negotiates direct-check capability before executing a signed probe", async () => {
+    const fetch = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ ok: true, capabilities: ["direct-check"] })))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ status: "passed", observedIp: "203.0.113.20" })));
+    vi.stubGlobal("fetch", fetch);
+    await expect(checkDirectWorker(config)).resolves.toMatchObject({ status: "passed", observedIp: "203.0.113.20" });
+    expect(fetch.mock.calls[1][1].body).toBe('{"type":"direct"}');
+  });
+  it("does not treat old SOCKS5-only workers as supporting direct checks", async () => {
+    const fetch = vi.fn().mockResolvedValue(new Response(JSON.stringify({ ok: true, capabilities: ["socks5-check"] })));
+    vi.stubGlobal("fetch", fetch);
+    await expect(checkDirectWorker(config)).rejects.toThrow("升级");
+    expect(fetch).toHaveBeenCalledTimes(1);
   });
 });

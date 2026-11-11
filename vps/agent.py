@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 import hashlib
 import hmac
+import ipaddress
+import socket
 import json
 import os
 import re
@@ -54,20 +56,26 @@ def verify_request(handler, body):
 
 
 def check_socks5(payload):
+    direct = payload.get("type") == "direct"
     host = payload.get("host")
     port = payload.get("port")
     username = payload.get("username") or ""
     password = payload.get("password") or ""
-    if not valid_host(host) or not isinstance(port, int) or not 1 <= port <= 65535:
+    if not direct and (not valid_host(host) or not isinstance(port, int) or isinstance(port, bool) or not 1 <= port <= 65535):
         raise ValueError("invalid_socks5_target")
-    if len(username) > 160 or len(password) > 300:
+    if not isinstance(username, str) or not isinstance(password, str) or len(username) > 160 or len(password) > 300 or any(c in username + password for c in "\r\n\0"):
         raise ValueError("credential_too_long")
 
-    command = ["curl", "--fail", "--silent", "--show-error", "--location", "--connect-timeout", "8", "--max-time", "20", "--proxy", f"socks5h://{host}:{port}", "--header", "Accept: application/json", "https://ipinfo.io/json"]
+    command = ["curl", "--fail", "--silent", "--show-error", "--proto", "=https", "--proto-redir", "=https", "--location", "--connect-timeout", "8", "--max-time", "20", "--header", "Accept: application/json"]
+    if direct:
+        command += ["--proxy", "", "--noproxy", "*"]
+    else:
+        command += ["--proxy", f"socks5h://{host}:{port}", "--noproxy", ""]
+    command += ["https://ipinfo.io/json"]
     config_path = None
     started = time.perf_counter()
     try:
-        if username or password:
+        if not direct and (username or password):
             config_file = tempfile.NamedTemporaryFile(mode="w", prefix="exitpanel-curl-", dir="/tmp", delete=False)
             config_path = config_file.name
             escaped = f"{username}:{password}".replace("\\", "\\\\").replace('"', '\\"')
@@ -89,6 +97,10 @@ def check_socks5(payload):
         observed_ip = result.get("ip")
         if not isinstance(observed_ip, str) or not observed_ip:
             return {"status": "failed", "errorCode": "missing_exit_ip", "errorMessage": "出口探测没有返回 IP", "latencyMs": round((time.perf_counter() - started) * 1000)}
+        try:
+            ipaddress.ip_address(observed_ip)
+        except ValueError:
+            return {"status": "failed", "errorCode": "invalid_exit_ip", "errorMessage": "出口探测没有返回有效 IP"}
         return {"status": "passed", "observedIp": observed_ip, "country": result.get("country"), "city": result.get("city"), "latencyMs": round((time.perf_counter() - started) * 1000)}
     finally:
         if config_path:
@@ -164,14 +176,14 @@ def expiry_reconciler():
 
 
 class Handler(BaseHTTPRequestHandler):
-    server_version = "ExitPanelAgent/0.3"
+    server_version = "ExitPanelAgent/1.0.6"
 
     def log_message(self, format, *args):
         return
 
     def do_GET(self):
         if self.path == "/health":
-            json_response(self, 200, {"ok": True, "service": "exitpanel-agent", "capabilities": ["socks5-check", "xray-atomic-apply", "rollback", "local-expiry-reconcile"]})
+            json_response(self, 200, {"ok": True, "service": "exitpanel-agent", "capabilities": ["socks5-check", "direct-check", "xray-atomic-apply", "rollback", "local-expiry-reconcile"]})
             return
         json_response(self, 404, {"error": "not_found"})
 
@@ -200,4 +212,6 @@ if __name__ == "__main__":
     if not SHARED_SECRET:
         raise SystemExit("AGENT_SHARED_SECRET is required")
     threading.Thread(target=expiry_reconciler, daemon=True).start()
-    ThreadingHTTPServer((HOST, PORT), Handler).serve_forever()
+    class AgentServer(ThreadingHTTPServer):
+        address_family = socket.AF_INET6 if ":" in HOST else socket.AF_INET
+    AgentServer((HOST, PORT), Handler).serve_forever()

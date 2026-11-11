@@ -102,3 +102,8 @@ ExitPanel 是一个面向单管理员、单台 Linux VPS 的出口代理管理�
 VPS 安装默认端口 8899、监听 0.0.0.0，随机生成路径和强密码，无需 Manus 项目 ID。VPS 容器使用宿主网络，由应用先验证新监听可绑定再保存，端口占用则保留旧配置；网络和路径修改提示重新访问及系统/服务商防火墙。托管版本由平台管理监听，端口/地址只读，路径和密码仍可修改，不伪装为已改变 VPS 网络。管理页面仅从已认证接口读取非敏感设置。为满足 root 后续查看凭据，VPS 密码另以稳定服务器密钥加密保存；HTTP API 永不返回此密文或明文。root 命令 `exitpanel credentials` 查看当前登录地址和密码，`exitpanel reset-password` 生成新密码；升级不覆盖已有数据库设置、密钥或密码。
 
 模块分工：`server/adminSecurity.ts` 提供密码/JWT/Cookie，`server/adminSettings.ts` 提供持久配置与登录节流，`server/adminRoutes.ts` 提供受控认证与设置 API，`server/adminRuntime.ts` 管理 VPS 监听切换，`server/adminCli.ts` 提供仅供 VPS root 工具调用的凭据命令；独立 React 登录和设置组件接入现有导航。旧版本标签保留，新发布同步 GitHub 并递增至 v1.0.3。
+
+## v1.0.6：同机入口与真实检测
+部署时自动检测执行命令的 VPS 公网 IP，`EXITPANEL_PUBLIC_HOST`/`EXITPANEL_ENTRY_HOST` 提供服务端可信来源。新增受管理员保护的部署信息查询；VPS 同机出口的新增/编辑和返回视图使用此 IP，浏览器地址、上游 SOCKS5 IP和管理域名不作为默认入口来源。托管站没有对应 VPS 配置时继续要求明确指定，不声称托管容器 IP就是用户 VPS。
+
+VPS 安装默认先安装本机 Python worker，使用已有或首次随机 HMAC 密钥，并安全写入生产环境配置。管理容器使用已有宿主网络通过 loopback调用，worker不向公网开放；远程通信继续要求HTTPS。提供独立connect-local-worker工具修复旧实例，不覆盖已配置远程节点、已有密码、数据库和密钥。本机直出增加能力协商和真实HTTPS探测，SOCKS5探测禁止NO_PROXY环境变量绕过代理，探测IP格式需要验证。worker上线只证明真实出网检测服务已连接，不代表VLESS/Xray入站已经安装或监听。

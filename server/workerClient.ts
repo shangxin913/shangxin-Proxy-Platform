@@ -52,6 +52,15 @@ export async function checkWorker(payload: { host: string; port: number; usernam
   return result;
 }
 
+export async function checkDirectWorker(config?: WorkerConfig): Promise<WorkerCheckResult> {
+  const target = config ?? envWorkerConfig();
+  const health = await workerHealth(target);
+  if (!health.capabilities?.includes("direct-check")) throw new Error("当前 worker 版本不支持本机直出检测，请升级到 v1.0.6");
+  const result = await workerPost<WorkerCheckResult>(target, "/v1/check", { type: "direct" });
+  if (!["passed", "failed"].includes(result.status) || (result.status === "passed" && (!result.observedIp || !isIP(result.observedIp)))) throw new Error("worker 返回了无效的真实检测结果");
+  return result;
+}
+
 export function applyWorkerXray(config: WorkerConfig, entries: unknown[]) {
   return workerPost<{ status: string; sha256?: string; errorMessage?: string }>(config, "/v1/config/apply", { entries });
 }
@@ -60,8 +69,8 @@ export function applyConfiguredWorkerXray(entries: unknown[]) {
   return applyWorkerXray(envWorkerConfig(), entries);
 }
 
-export async function workerHealth() {
-  const config = envWorkerConfig();
+export async function workerHealth(target?: WorkerConfig) {
+  const config = target ?? envWorkerConfig();
   const response = await fetch(`${config.baseUrl}/health`, { redirect: "error", signal: AbortSignal.timeout(5_000) });
   if (!response.ok) throw new Error(`worker_http_${response.status}`);
   return response.json() as Promise<{ ok: boolean; service: string; capabilities?: string[] }>;

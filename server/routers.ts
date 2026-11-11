@@ -6,9 +6,10 @@ import { getSessionCookieOptions } from "./_core/cookies";
 import { createExit, createNode, deleteExit, deleteNode, ensureSubscriptionToken, getExit, getExitCredential, getNode, getNodeSecret, listChecks, listEvents, listExitPlans, listExits, listNodes, setExitCheck, updateExit, updateNode, type SafeExit } from "./db";
 import { databaseReady } from "./health";
 import { makeSubscription } from "./subscriptions";
-import { applyWorkerXray, checkWorker, validateWorkerUrl, workerHealth, type WorkerConfig } from "./workerClient";
+import { applyWorkerXray, checkDirectWorker, checkWorker, validateWorkerUrl, workerHealth, type WorkerConfig } from "./workerClient";
 import { getVpsAdminStatus } from "./vpsAdmin";
 import { ADMIN_COOKIE, adminCookieOptions } from "./adminSecurity";
+import { deploymentInfo, resolveEntryHost } from "./deploymentInfo";
 
 const port = z.coerce.number().int().min(1).max(65535);
 const dateInput = z.string().datetime().nullable().optional();
@@ -24,7 +25,7 @@ const exitInput = z.object({
   password: z.string().max(300).optional(),
   expectedCountry: z.string().trim().max(80).optional(),
   expectedCity: z.string().trim().max(120).optional(),
-  entryHost: z.string().trim().min(1).max(255),
+  entryHost: z.string().trim().max(255).optional(),
   entryPort: port,
   expiresAt: dateInput,
   subscribeEnabled: z.boolean().default(true),
@@ -60,6 +61,7 @@ async function nodeWorkerConfig(nodeId: string): Promise<WorkerConfig> {
 
 export const appRouter = router({
   system: router({
+    deployment: adminProcedure.query(() => deploymentInfo()),
     health: publicProcedure.query(async () => ({ ok: await databaseReady(), mode: "production" as const })),
     worker: adminProcedure.query(async () => {
       try {
@@ -88,19 +90,27 @@ export const appRouter = router({
       if (!exit) throw new TRPCError({ code: "NOT_FOUND", message: "出口不存在" });
       const [checks, events] = await Promise.all([listChecks(input.id), listEvents(input.id)]);
       const { passwordEncrypted: _password, ...safe } = exit;
-      return { ...safe, hasPassword: Boolean(_password), checks, events };
+      const host = deploymentInfo().entryHost;
+      return { ...safe, entryHost: !exit.nodeId && host ? host : exit.entryHost, hasPassword: Boolean(_password), checks, events };
     }),
     create: adminProcedure.input(exitInput).mutation(async ({ input }) => {
       if (input.type === "socks5" && (!input.upstreamHost || !input.upstreamPort)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "第三方 SOCKS5 需要填写上游地址和端口" });
       }
-      const created = await createExit({ ...input, expiresAt: toDate(input.expiresAt) });
+      let entryHost: string;
+      try { entryHost = resolveEntryHost(input.entryHost, input.nodeId); } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "入口主机无效" }); }
+      const created = await createExit({ ...input, entryHost, expiresAt: toDate(input.expiresAt) });
       if (!created) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "创建出口失败" });
       const { passwordEncrypted: _password, ...safe } = created;
       return { ...safe, hasPassword: Boolean(_password) };
     }),
     update: adminProcedure.input(z.object({ id: z.string(), data: exitInput.partial().extend({ enabled: z.boolean().optional() }) })).mutation(async ({ input }) => {
-      const updated = await updateExit(input.id, { ...input.data, expiresAt: input.data.expiresAt === undefined ? undefined : toDate(input.data.expiresAt) });
+      const old = await getExit(input.id);
+      if (!old) throw new TRPCError({ code: "NOT_FOUND", message: "出口不存在" });
+      const nodeId = input.data.nodeId === undefined ? old.nodeId : input.data.nodeId;
+      let entryHost: string;
+      try { entryHost = resolveEntryHost(input.data.entryHost ?? old.entryHost, nodeId); } catch (error) { throw new TRPCError({ code: "BAD_REQUEST", message: error instanceof Error ? error.message : "入口主机无效" }); }
+      const updated = await updateExit(input.id, { ...input.data, entryHost, expiresAt: input.data.expiresAt === undefined ? undefined : toDate(input.data.expiresAt) });
       if (!updated) throw new TRPCError({ code: "NOT_FOUND", message: "出口不存在" });
       const { passwordEncrypted: _password, ...safe } = updated;
       return { ...safe, hasPassword: Boolean(_password) };
@@ -120,19 +130,18 @@ export const appRouter = router({
       if (!exit.enabled || (exit.expiresAt && exit.expiresAt.getTime() <= Date.now())) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "停用或已过期出口不能检测，请先启用或续期" });
       }
-      if (exit.type !== "socks5") {
-        throw new TRPCError({ code: "BAD_REQUEST", message: "当前 worker 尚未支持本机直出探测；不会生成模拟通过结果" });
-      }
-      if (!exit.upstreamHost || !exit.upstreamPort) {
+      if (exit.type === "socks5" && (!exit.upstreamHost || !exit.upstreamPort)) {
         throw new TRPCError({ code: "BAD_REQUEST", message: "请先配置上游 SOCKS5 地址和端口" });
       }
       if (!exit.nodeId && !(process.env.EXITPANEL_WORKER_URL && process.env.EXITPANEL_WORKER_SHARED_SECRET)) {
         throw new TRPCError({ code: "PRECONDITION_FAILED", message: "尚未接入 VPS worker，无法执行真实检测" });
       }
       const config = exit.nodeId ? await nodeWorkerConfig(exit.nodeId) : undefined;
-      await updateExit(input.id, { status: "checking" });
+      await updateExit(input.id, { status: "checking", entryHost: !exit.nodeId && deploymentInfo().entryHost ? deploymentInfo().entryHost! : exit.entryHost });
       try {
-        const result = await checkWorker({ host: exit.upstreamHost, port: exit.upstreamPort, username: exit.username || undefined, password: await getExitCredential(exit.id) }, config);
+        const result = exit.type === "direct"
+          ? await checkDirectWorker(config)
+          : await checkWorker({ host: exit.upstreamHost!, port: exit.upstreamPort!, username: exit.username || undefined, password: await getExitCredential(exit.id) }, config);
         const { status, observedIp, country, city, latencyMs, errorCode, errorMessage } = result;
         const checked = await setExitCheck(input.id, { status, observedIp, country, city, latencyMs, errorCode, errorMessage });
         if (!checked) throw new Error("Exit no longer exists");

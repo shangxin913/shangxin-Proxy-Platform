@@ -5,6 +5,7 @@ import { nanoid } from "nanoid";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { checkRecords, exits, InsertUser, nodes, statusEvents, users, type Exit } from "../drizzle/schema";
 import { ENV } from "./_core/env";
+import { deploymentInfo } from "./deploymentInfo";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
@@ -143,7 +144,8 @@ export type SafeExit = Omit<Exit, "passwordEncrypted"> & { hasPassword: boolean 
 
 function safeExit(exit: Exit): SafeExit {
   const { passwordEncrypted, ...rest } = exit;
-  return { ...rest, hasPassword: Boolean(passwordEncrypted) };
+  const host = deploymentInfo().entryHost;
+  return { ...rest, entryHost: !exit.nodeId && host ? host : exit.entryHost, hasPassword: Boolean(passwordEncrypted) };
 }
 
 async function expirePastExits(db: NonNullable<Awaited<ReturnType<typeof getDb>>>) {
