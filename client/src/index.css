@@ -203,6 +203,12 @@ td > small, td code + small { display: block; color: #9ca9a4; margin-top: 5px; f
 .system-row small { display: block; color: #9aa8a3; font-size: 10px; margin-top: 4px; }
 .system-ok, .system-wait { font-size: 10px; border-radius: 5px; padding: 4px 7px; background: #e8f5ee; color: #43856f; }
 .system-wait { background: #fff2dc; color: #9d722d; }
+.vps-admin-address { display: flex; align-items: flex-start; gap: 12px; padding: 16px 0; border-bottom: 1px solid #edf1ee; color: #5d8173; }
+.vps-admin-address > div { min-width: 0; flex: 1; }
+.vps-admin-address small { display: block; color: #9aa8a3; font-size: 10px; margin-bottom: 5px; }
+.vps-admin-address small:last-child { margin: 7px 0 0; }
+.vps-admin-address a, .vps-admin-address code { display: block; color: #176b5c; font-size: 12px; overflow-wrap: anywhere; }
+.admin-console-note { margin: 16px 0 0; color: #8a9a94; font-size: 11px; line-height: 1.6; }
 .big-number { color: #1e5e4e; font-size: 47px; letter-spacing: -.08em; padding: 18px 0 2px; }
 .big-number span { color: #adbbb4; font-size: 19px; letter-spacing: -.04em; }
 .readiness-card p { color: #98a49f; font-size: 11px; margin: 0 0 19px; }

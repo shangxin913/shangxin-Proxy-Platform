@@ -7,6 +7,7 @@ import { createExit, createNode, deleteExit, deleteNode, ensureSubscriptionToken
 import { databaseReady } from "./health";
 import { makeSubscription } from "./subscriptions";
 import { applyWorkerXray, checkWorker, validateWorkerUrl, workerHealth, type WorkerConfig } from "./workerClient";
+import { getVpsAdminStatus } from "./vpsAdmin";
 
 const port = z.coerce.number().int().min(1).max(65535);
 const dateInput = z.string().datetime().nullable().optional();
@@ -67,6 +68,7 @@ export const appRouter = router({
         return { configured: Boolean(process.env.EXITPANEL_WORKER_URL && process.env.EXITPANEL_WORKER_SHARED_SECRET), reachable: false, detail: error instanceof Error ? error.message : "worker_unavailable" };
       }
     }),
+    vpsAdmin: adminProcedure.query(() => getVpsAdminStatus()),
   }),
   auth: router({
     me: publicProcedure.query((opts) => opts.ctx.user),
