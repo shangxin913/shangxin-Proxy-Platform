@@ -3,6 +3,7 @@ import { z } from "zod";
 import { authenticateAdminRequest } from "./adminAuth";
 import { getAdminSettings, getLocalAdminUser, reserveLoginAttempt, safeSettings, settingsInput, updateAdminSettings } from "./adminSettings";
 import { ADMIN_COOKIE, ADMIN_SESSION_MS, adminClientAddress, adminCookieOptions, assertAdminMutation, isVps, signAdminSession, verifyPassword } from "./adminSecurity";
+import { checkForUpdate, startUpdate, updateStatus } from "./updateService";
 
 const handle = (handler: (req: Request, res: Response) => Promise<unknown>) => (req: Request, res: Response, _next: NextFunction) => {
   res.set("Cache-Control", "no-store");
@@ -42,6 +43,22 @@ export function registerAdminRoutes(app: Express) {
     const result = await updateAdminSettings(input);
     if (result.sessionInvalidated) res.clearCookie(ADMIN_COOKIE, adminCookieOptions(req));
     return res.json(result);
+  }));
+  app.get("/api/admin/update/check", handle(async (req, res) => {
+    const user = await authenticateAdminRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "仅管理员可以检查更新" });
+    const [info, status] = await Promise.all([checkForUpdate(), isVps() ? updateStatus().catch(() => ({ status: "unavailable" })) : Promise.resolve({ status: "managed" })]);
+    return res.json({ ...info, status: status.status, message: status.message });
+  }));
+  app.post("/api/admin/update/install", handle(async (req, res) => {
+    assertAdminMutation(req);
+    const user = await authenticateAdminRequest(req);
+    if (user?.role !== "admin") return res.status(403).json({ error: "仅管理员可以安装更新" });
+    if (!isVps()) return res.status(409).json({ error: "托管网站不能直接更新 VPS，请在 VPS 上安装 v1.0.6 更新代理" });
+    const version = z.object({ version: z.string().regex(/^v\d+\.\d+\.\d+$/) }).parse(req.body).version;
+    const latest = await checkForUpdate();
+    if (version !== latest.latest || !latest.updateAvailable) return res.status(409).json({ error: "版本不是当前可安装的新版本，请重新检查更新" });
+    return res.status(202).json(await startUpdate(version));
   }));
 }
 

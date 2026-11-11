@@ -9,6 +9,9 @@ ENV_FILE="$CONFIG_DIR/agent.env"
 SERVICE_FILE="/etc/systemd/system/$APP_NAME.service"
 SUDOERS_FILE="/etc/sudoers.d/$APP_NAME"
 APPLY_HELPER="/usr/local/sbin/exitpanel-apply"
+UPDATE_AGENT="/opt/exitpanel-agent/update_agent.py"
+UPDATE_SERVICE="exitpanel-update-agent.service"
+UPDATE_SOCKET="/run/exitpanel/update.sock"
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 if [[ "${1:-}" == --help || "${1:-}" == -h ]]; then
@@ -104,8 +107,10 @@ id -u "$APP_NAME" >/dev/null 2>&1 || useradd --system --home-dir "$INSTALL_DIR" 
 install -d -o root -g root -m 0755 "$INSTALL_DIR"
 install -d -o "$APP_NAME" -g "$APP_NAME" -m 0700 /run/exitpanel-agent /var/lib/exitpanel-agent
 install -o root -g root -m 0755 "$SCRIPT_DIR/agent.py" "$INSTALL_DIR/agent.py"
+install -o root -g root -m 0755 "$SCRIPT_DIR/update_agent.py" "$UPDATE_AGENT"
 install -o root -g root -m 0644 "$SCRIPT_DIR/xray_config.py" "$INSTALL_DIR/xray_config.py"
 install -o root -g root -m 0700 "$SCRIPT_DIR/exitpanel-apply" "$APPLY_HELPER"
+install -o root -g root -m 0700 "$SCRIPT_DIR/exitpanel-update" /usr/local/sbin/exitpanel-update
 install -d -o root -g root -m 0700 "$CONFIG_DIR/xray"
 install -d -o root -g root -m 0750 /etc/sudoers.d
 SUDOERS_TEMP="$(mktemp /etc/sudoers.d/.exitpanel-agent.XXXXXX)"
@@ -147,6 +152,25 @@ EOF
 systemctl daemon-reload
 systemctl enable "$APP_NAME.service"
 systemctl restart "$APP_NAME.service"
+cat >"/etc/systemd/system/$UPDATE_SERVICE" <<EOF
+[Unit]
+Description=ExitPanel fixed-tag update agent
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+ExecStart=/usr/bin/python3 $UPDATE_AGENT
+User=root
+RuntimeDirectory=exitpanel
+RuntimeDirectoryMode=0755
+Restart=on-failure
+ProtectHome=yes
+ProtectSystem=full
+ReadWritePaths=/run/exitpanel /var/lib/exitpanel-agent /opt/exitpanel /etc/exitpanel
+[Install]
+WantedBy=multi-user.target
+EOF
+systemctl enable --now "$UPDATE_SERVICE"
 HEALTHY=0
 for ((attempt=1; attempt<=30; attempt++)); do
   if systemctl is-active --quiet "$APP_NAME.service" && curl --noproxy '*' -fsS --max-time 3 "$WORKER_URL/health" >/dev/null 2>&1; then

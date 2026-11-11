@@ -317,6 +317,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 18px;
   padding: 24px 26px;
   margin-bottom: 22px;
@@ -393,6 +394,18 @@
   text-decoration: underline;
   text-underline-offset: 4px;
 }
+
+.panel-settings-update-status {
+  flex-basis: 100%;
+  margin: 10px 0 0;
+  padding: 9px 12px;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.6;
+}
+
+.panel-settings-update-status.is-new { background: #fff6df; color: #856526; }
+.panel-settings-update-status.is-current { background: #eef7ef; color: #477359; }
 
 .panel-settings-grid {
   display: grid;

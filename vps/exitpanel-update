@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+umask 077
+VERSION="${1:-}"
+[[ "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo 'invalid version'; exit 2; }
+INSTALL_DIR="$(cat /etc/exitpanel/install-dir 2>/dev/null || echo /opt/exitpanel)"
+REPO="https://github.com/shangxin913/shangxin-Proxy-Platform.git"
+PUBLIC_HOST=""
+if [[ -f "$INSTALL_DIR/.env.production" ]]; then PUBLIC_HOST="$(sed -n "s/^EXITPANEL_PUBLIC_HOST=['\"]\{0,1\}\([^'\"]*\)['\"]\{0,1\}$/\1/p" "$INSTALL_DIR/.env.production" | head -1)"; fi
+TMP="$(mktemp -d -t exitpanel-update.XXXXXX)"; trap 'rm -rf "$TMP"' EXIT
+curl -fLsS --proto '=https' --proto-redir '=https' --connect-timeout 10 --max-time 60 "https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/$VERSION/vps/deploy-panel.sh" -o "$TMP/deploy-panel.sh"
+grep -q 'APP_NAME="exitpanel"' "$TMP/deploy-panel.sh" || { echo 'unexpected installer'; exit 1; }
+chmod 700 "$TMP/deploy-panel.sh"
+ARGS=(--repo "$REPO" --branch "$VERSION" --dir "$INSTALL_DIR")
+[[ -n "$PUBLIC_HOST" ]] && ARGS+=(--host "$PUBLIC_HOST")
+exec "$TMP/deploy-panel.sh" "${ARGS[@]}"

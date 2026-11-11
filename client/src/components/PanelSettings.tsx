@@ -39,6 +39,8 @@ type SettingsResult = {
   managementPath: string;
 };
 
+type UpdateInfo = { current: string; latest: string; updateAvailable: boolean; releaseUrl: string; installAvailable: boolean; status?: string; message?: string };
+
 const RELEASES_URL =
   "https://github.com/shangxin913/shangxin-Proxy-Platform/releases";
 const MANAGEMENT_PATH_PATTERN = /^(?:\/|\/[A-Za-z0-9_-]+)$/;
@@ -90,6 +92,9 @@ export function PanelSettings({ onSessionInvalidated }: PanelSettingsProps) {
   const [notice, setNotice] = useState("");
   const [sshNotice, setSshNotice] = useState("");
   const [sessionExpired, setSessionExpired] = useState(false);
+  const [update, setUpdate] = useState<UpdateInfo | null>(null);
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [installingUpdate, setInstallingUpdate] = useState(false);
   const networkEditable =
     settings?.runtime === "vps" && settings.networkEditable;
 
@@ -128,6 +133,30 @@ export function PanelSettings({ onSessionInvalidated }: PanelSettingsProps) {
     })();
     return () => controller.abort();
   }, [reload]);
+
+  async function checkUpdate() {
+    setCheckingUpdate(true); setError("");
+    try {
+      const response = await fetch("/api/admin/update/check", { credentials: "include", cache: "no-store" });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "无法检查更新");
+      setUpdate(data);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "无法检查更新"); }
+    finally { setCheckingUpdate(false); }
+  }
+
+  async function installUpdate() {
+    if (!update?.updateAvailable || !update.installAvailable || installingUpdate) return;
+    if (!window.confirm(`确认安装 ${update.latest}？VPS 会安全拉取固定版本并重建服务，数据库、管理密码和密钥会保留。升级期间面板可能短暂不可用。`)) return;
+    setInstallingUpdate(true); setError("");
+    try {
+      const response = await fetch("/api/admin/update/install", { method: "POST", credentials: "include", headers: { "Content-Type": "application/json", "x-exitpanel-action": "1" }, body: JSON.stringify({ version: update.latest }) });
+      const data = await response.json();
+      if (!response.ok) throw new Error(data?.error || "更新未启动");
+      setUpdate({ ...update, status: "installing", message: "已启动更新。服务重启后请重新加载页面并检查版本。" });
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "更新未启动"); }
+    finally { setInstallingUpdate(false); }
+  }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -335,7 +364,18 @@ export function PanelSettings({ onSessionInvalidated }: PanelSettingsProps) {
             版本记录
             <ArrowUpRight size={14} aria-hidden="true" />
           </a>
+          <button className="panel-settings-secondary-button" type="button" onClick={() => void checkUpdate()} disabled={checkingUpdate}>
+            {checkingUpdate ? "检查中…" : "检查更新"}
+          </button>
+          {update?.updateAvailable && update.installAvailable && (
+            <button className="panel-settings-save-button" type="button" onClick={() => void installUpdate()} disabled={installingUpdate || update.status === "installing"}>
+              {installingUpdate || update.status === "installing" ? "正在安装…" : `安装 ${update.latest}`}
+            </button>
+          )}
         </div>
+        {update && <p className={`panel-settings-update-status ${update.updateAvailable ? "is-new" : "is-current"}`} role="status">
+          {update.status === "installing" ? update.message : update.updateAvailable ? `发现新版本 ${update.latest}（当前 ${update.current}）。${update.installAvailable ? "可直接安装，升级时会保留数据库和管理凭据。" : "当前环境暂不能直接安装，请确认对应 VPS 已安装 v1.0.6 更新代理。"}` : `当前已是最新版本 ${update.current}。`}
+        </p>}
       </section>
 
       <div className="panel-settings-grid">
