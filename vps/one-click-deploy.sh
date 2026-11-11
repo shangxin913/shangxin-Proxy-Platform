@@ -48,8 +48,13 @@ trap cleanup EXIT
 
 INSTALLER="$TMP_DIR/deploy-panel.sh"
 echo "[ExitPanel] 下载生产部署器：$INSTALLER_URL"
-curl --fail --silent --show-error --location --proto '=https' --tlsv1.2 \
-  --max-time 30 "$INSTALLER_URL" -o "$INSTALLER"
+# Keep the URL HTTPS by construction while avoiding newer curl-only options;
+# older VPS images commonly ship curl versions without --proto support.
+case "$INSTALLER_URL" in
+  https://*) ;;
+  *) echo "部署器地址必须使用 HTTPS：$INSTALLER_URL" >&2; exit 1 ;;
+esac
+curl -fLsS --location --max-time 30 "$INSTALLER_URL" -o "$INSTALLER"
 
 [[ -s "$INSTALLER" ]] || { echo "部署器下载为空" >&2; exit 1; }
 grep -q 'APP_NAME="exitpanel"' "$INSTALLER" || { echo "下载的文件不是预期的 ExitPanel 部署器" >&2; exit 1; }
