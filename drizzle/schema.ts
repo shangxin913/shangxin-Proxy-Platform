@@ -88,3 +88,24 @@ export type InsertExit = typeof exits.$inferInsert;
 export type CheckRecord = typeof checkRecords.$inferSelect;
 export type StatusEvent = typeof statusEvents.$inferSelect;
 export type Node = typeof nodes.$inferSelect;
+
+export const panelSettings = mysqlTable("panelSettings", {
+  id: int("id").primaryKey(),
+  adminPort: int("adminPort").notNull().default(8899),
+  listenAddress: varchar("listenAddress", { length: 64 }).notNull().default("0.0.0.0"),
+  managementPath: varchar("managementPath", { length: 96 }).notNull().default("/"),
+  passwordHash: text("passwordHash"),
+  passwordEncrypted: text("passwordEncrypted"),
+  authVersion: int("authVersion").notNull().default(1),
+  revision: int("revision").notNull().default(1),
+  createdAt: timestamp("createdAt").defaultNow().notNull(),
+  updatedAt: timestamp("updatedAt").defaultNow().onUpdateNow().notNull(),
+});
+
+export const adminLoginBuckets = mysqlTable("adminLoginBuckets", {
+  keyHash: varchar("keyHash", { length: 64 }).primaryKey(),
+  attempts: int("attempts").notNull().default(0),
+  windowStart: timestamp("windowStart").notNull(),
+});
+
+export type PanelSettings = typeof panelSettings.$inferSelect;

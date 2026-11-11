@@ -1,1 +1,1 @@
-{"routes":[{"path":"/","title":"ExitPanel 出口工作台"}]}
+{"routes":[{"path":"/","title":"ExitPanel 管理入口"},{"path":"/:managementPath","title":"自定义管理入口"}]}

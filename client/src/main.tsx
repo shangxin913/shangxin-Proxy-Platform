@@ -18,7 +18,9 @@ const redirectToLoginIfUnauthorized = (error: unknown) => {
 
   if (!isUnauthorized) return;
 
-  startLogin();
+  // A password session expiry must return to this application's login,
+  // not silently switch authentication providers.
+  void queryClient.invalidateQueries({ queryKey: [["auth", "me"]] });
 };
 
 queryClient.getQueryCache().subscribe(event => {
@@ -54,13 +56,13 @@ const trpcClient = trpc.createClient({
             const pair = raw.split(";").find(s => s.trim().startsWith(prefix));
             const token = pair?.trim().slice(prefix.length);
             if (token) {
-              return { Authorization: `Bearer ${token}` };
+              return { Authorization: `Bearer ${token}`, "x-exitpanel-action": "1" };
             }
           }
         } catch {
           // sessionStorage unavailable
         }
-        return {};
+        return { "x-exitpanel-action": "1" };
       },
       fetch(input, init) {
         return globalThis.fetch(input, {

@@ -8,6 +8,7 @@ import { databaseReady } from "./health";
 import { makeSubscription } from "./subscriptions";
 import { applyWorkerXray, checkWorker, validateWorkerUrl, workerHealth, type WorkerConfig } from "./workerClient";
 import { getVpsAdminStatus } from "./vpsAdmin";
+import { ADMIN_COOKIE, adminCookieOptions } from "./adminSecurity";
 
 const port = z.coerce.number().int().min(1).max(65535);
 const dateInput = z.string().datetime().nullable().optional();
@@ -75,6 +76,7 @@ export const appRouter = router({
     logout: publicProcedure.mutation(({ ctx }) => {
       const cookieOptions = getSessionCookieOptions(ctx.req);
       ctx.res.clearCookie(COOKIE_NAME, { ...cookieOptions, maxAge: -1 });
+      ctx.res.clearCookie(ADMIN_COOKIE, adminCookieOptions(ctx.req));
       return { success: true } as const;
     }),
   }),

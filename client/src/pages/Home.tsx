@@ -1,5 +1,6 @@
 import { useMemo, useState } from "react";
-import { startLogin } from "@/const";
+import AdminLogin from "@/components/AdminLogin";
+import PanelSettings from "@/components/PanelSettings";
 import { useAuth } from "@/_core/hooks/useAuth";
 import { trpc } from "@/lib/trpc";
 import { Badge } from "@/components/ui/badge";
@@ -39,7 +40,8 @@ const navItems = [
   { id: "overview", label: "总览工作台", icon: Activity },
   { id: "exits", label: "出口资源", icon: Network },
   { id: "subscriptions", label: "订阅与入口", icon: Route },
-  { id: "system", label: "系统状态", icon: Settings2 },
+  { id: "system", label: "系统状态", icon: Activity },
+  { id: "settings", label: "设置", icon: Settings2 },
 ] as const;
 
 type ViewId = (typeof navItems)[number]["id"];
@@ -154,9 +156,6 @@ function PathChip({ exit }: { exit: ExitRow }) {
   return <div className="path-chip"><span className="path-entry">{exit.entryHost}:{exit.entryPort}</span><ArrowRight size={13} /><span className="path-exit">{exit.observedIp || "等待检测"}</span></div>;
 }
 
-function LoginView() {
-  return <div className="login-shell"><div className="login-card"><div className="brand-mark large"><span>EP</span></div><p className="eyebrow">EXITPANEL / PRIVATE CONTROL</p><h1>出口代理管理面板</h1><p>统一管理 VPS 入口、第三方 SOCKS5 出口和节点到期周期。实际出口与客户端入口始终分开记录。</p><Button size="lg" onClick={() => startLogin()}><KeyRound size={17} />使用 Manus 登录</Button><small>仅管理员可访问出口凭据、订阅和生命周期操作。</small></div></div>;
-}
 
 export default function Home() {
   const auth = useAuth();
@@ -198,7 +197,7 @@ export default function Home() {
   }).sort((a, b) => new Date(a.expiresAt || 0).getTime() - new Date(b.expiresAt || 0).getTime()), [exits]);
 
   if (auth.loading) return <div className="loading-screen"><RefreshCw className="spin" />正在读取管理员会话…</div>;
-  if (!auth.user) return <LoginView />;
+  if (!auth.user) return <AdminLogin onSuccess={() => { void auth.refresh(); }} />;
   if (auth.user.role !== "admin") return (
     <div className="login-shell"><div className="login-card">
       <div className="brand-mark large"><span>EP</span></div>
@@ -282,6 +281,7 @@ export default function Home() {
   const section = view === "overview" ? <OverviewView summary={summary} exits={exits} upcoming={upcoming} onAdd={openCreate} onOpen={(exit) => setSelected(exit)} onCheck={runCheck} onViewExits={() => setView("exits")} onViewSubscriptions={() => setView("subscriptions")} />
     : view === "exits" ? <ExitsView exits={exits} onAdd={openCreate} onOpen={(exit) => setSelected(exit)} onEdit={openEdit} onCheck={runCheck} onToggle={toggleExit} onDelete={removeExit} />
     : view === "subscriptions" ? <SubscriptionsView exits={exits} subscription={subscriptionQuery.data} links={subscriptionLinksQuery.data} onCopy={copy} onOpen={(exit) => setSelected(exit)} />
+    : view === "settings" ? <PanelSettings onSessionInvalidated={() => { void auth.refresh(); }} />
     : <SystemView summary={summary} worker={workerQuery.data} vpsAdmin={vpsAdminQuery.data} />;
 
   return <div className="app-shell">

@@ -10,6 +10,10 @@ import { serveStatic, setupVite } from "./vite";
 import { getUserBySubscriptionToken, listExits } from "../db";
 import { makeSubscription } from "../subscriptions";
 import { databaseReady } from "../health";
+import { managementPathGuard, registerAdminRoutes } from "../adminRoutes";
+import { getAdminSettings } from "../adminSettings";
+import { assertAdminMutation, isVps } from "../adminSecurity";
+import { startVpsListeners } from "../adminRuntime";
 
 async function startServer() {
   const app = express();
@@ -17,6 +21,7 @@ async function startServer() {
   // Configure body parser with larger size limit for file uploads
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
+  registerAdminRoutes(app);
   app.get("/api/health", async (_req, res) => {
     const ready = await databaseReady();
     res.set("Cache-Control", "no-store").status(ready ? 200 : 503).json({
@@ -43,11 +48,18 @@ async function startServer() {
   // tRPC API
   app.use(
     "/api/trpc",
+    (req, res, next) => {
+      if (req.method === "POST") {
+        try { assertAdminMutation(req); } catch { res.status(403).json({ error: "Invalid administrative request" }); return; }
+      }
+      next();
+    },
     createExpressMiddleware({
       router: appRouter,
       createContext,
     })
   );
+  managementPathGuard(app);
   // development mode uses Vite, production mode uses static files
   if (process.env.NODE_ENV === "development") {
     await setupVite(app, server);
@@ -58,7 +70,8 @@ async function startServer() {
   const port = Number(process.env.PORT || "3000");
   if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error("Invalid PORT");
   server.on("error", error => { console.error("Server failed:", error.message); process.exit(1); });
-  server.listen(port, "0.0.0.0", () => console.log(`Server listening on port ${port}`));
+  if (isVps()) await startVpsListeners(app, await getAdminSettings());
+  else server.listen(port, "0.0.0.0", () => console.log(`Server listening on port ${port}`));
 }
 
 startServer().catch(error => { console.error(error); process.exit(1); });

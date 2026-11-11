@@ -12,6 +12,7 @@ function Router() {
     <Switch>
       <Route path={"/"} component={Home} />
       <Route path={"/404"} component={NotFound} />
+      <Route path={"/:managementPath"} component={Home} />
       {/* Final fallback route */}
       <Route component={NotFound} />
     </Switch>

@@ -3,13 +3,13 @@ services:
     image: mysql:8.4
     restart: unless-stopped
     command: ["mysqld", "--character-set-server=utf8mb4", "--collation-server=utf8mb4_unicode_ci"]
-    env_file:
-      - .env.production
     environment:
       MYSQL_DATABASE: ${MYSQL_DATABASE}
       MYSQL_USER: ${MYSQL_USER}
       MYSQL_PASSWORD: ${MYSQL_PASSWORD}
       MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD}
+    ports:
+      - "127.0.0.1:${DB_PORT:-13306}:3306"
     volumes:
       - exitpanel_mysql:/var/lib/mysql
     healthcheck:
@@ -24,18 +24,20 @@ services:
       context: ./src
       dockerfile: Dockerfile
     restart: unless-stopped
+    network_mode: host
     env_file:
       - .env.production
     environment:
       NODE_ENV: production
-      PORT: 3000
+      EXITPANEL_RUNTIME: vps
       DATABASE_URL: ${DATABASE_URL}
+      EXITPANEL_ADMIN_SOCKET: /run/exitpanel/app.sock
+    volumes:
+      - /run/exitpanel:/run/exitpanel
     depends_on:
       db:
         condition: service_healthy
-    ports:
-      - "127.0.0.1:${APP_PORT}:3000"
-    command: ["sh", "-lc", "pnpm db:migrate && exec node dist/index.js"]
+    command: ["sh", "-lc", "pnpm db:migrate && node dist/adminCli.js bootstrap && exec node dist/index.js"]
 
 volumes:
   exitpanel_mysql:
