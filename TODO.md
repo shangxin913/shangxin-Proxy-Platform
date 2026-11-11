@@ -1,0 +1,27 @@
+
+## 6. 控制面与 VPS 数据面
+- [ ] 面板通过带时间戳的 HMAC-SHA256 请求调用 VPS worker，拒绝过期签名和未签名请求。
+- [ ] worker 在 VPS 本机执行 SOCKS5 真实探测，并支持 Xray 配置计划接口。
+- [ ] worker 使用 root helper 对 Xray 配置执行 JSON/Xray 校验、备份、原子替换、systemd reload；失败时恢复旧配置。
+- [ ] REALITY 私钥只保留在 VPS 环境文件，不返回给面板或浏览器。
+
+## 7. 真实订阅和多节点
+- [ ] 面板生成带随机 token 的公开订阅 URL，VLESS/Base64 与 Clash/Mihomo URL 分开显示。
+- [ ] 公开订阅实时过滤过期、停用和未通过检测的出口。
+- [ ] 支持多个 VPS 节点，节点保存 endpoint、worker 端口、HMAC 共享密钥、运行状态和 direct/reverse 隧道模式。
+- [ ] 出口可绑定 nodeId，管理员可按节点生成并下发该节点的有效 Xray 出口计划。
+- [ ] 提供反向 SSH 隧道模板，明确固定 host key、专用无 shell 密钥、relay 端口和防火墙边界。
+
+## 8. 真实网络运行边界
+- [ ] 当前 root 安装器不自动下载 Xray、不自动生成 REALITY 私钥、不直接修改公网防火墙；生产接入时由管理员在目标 VPS 配置并审查这些参数。
+- [ ] sing-box 配置生成、WireGuard/专用中继和公网 DNS/证书编排作为后续扩展，不与首版 Xray 路径混用。
+
+## 9. 长期托管网站
+- [x] 从已有 GitHub 源代码迁入托管工作区，保留 React、Express/tRPC、Drizzle/MySQL 和原有设计。
+- [x] 为新站启用托管服务和数据库，安装锁定依赖并执行有历史记录的数据库迁移，不写入演示出口。
+- [x] 管理员登录保留真实 Manus OAuth、会话签名、项目绑定和服务端权限检查，取消无所有者时任意首个用户自动提权。
+- [x] 检测仅接受真实 worker 结果，未接入、失败及未支持的直出探测不生成通过记录；外部 worker 使用 HTTPS。
+- [x] 健康检查报告应用与数据库可用性；系统状态如实说明 worker 尚未接入。
+- [ ] 通过版本化 Dockerfile 构建前后端，保存检查点并发布固定 HTTPS 地址；初次保持私有，不自动扩展可访问人员。
+- [x] 明确网站控制面与 VPS worker/Xray 的边界，不更改生产 VPS或用户现有 GitHub 仓库。
+- [ ] 网站所有者通过真实登录确认账号 ID 后，为该账号完成管理员授权；不自动提权。

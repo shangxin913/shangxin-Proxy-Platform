@@ -1,0 +1,2 @@
+# Unified dependency patches require whitespace-only context lines.
+patches/*.patch -whitespace
