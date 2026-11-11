@@ -42,6 +42,19 @@ done
 
 command -v curl >/dev/null 2>&1 || { echo "缺少 curl，请先安装 curl" >&2; exit 1; }
 
+# Read the required project ID before handing control to the downloaded
+# installer. This avoids depending on the stdin state of `curl | sudo bash`.
+if [[ -z "${MANUS_PROJECT_ID:-}" ]]; then
+  if [[ -r /dev/tty ]]; then
+    read -r -p "MANUS_PROJECT_ID（项目 ID）: " MANUS_PROJECT_ID </dev/tty
+  else
+    echo "缺少 MANUS_PROJECT_ID，且当前没有可交互终端。请使用：sudo env MANUS_PROJECT_ID=你的项目ID bash ..." >&2
+    exit 1
+  fi
+fi
+[[ -n "$MANUS_PROJECT_ID" ]] || { echo "MANUS_PROJECT_ID 不能为空" >&2; exit 1; }
+export MANUS_PROJECT_ID
+
 TMP_DIR="$(mktemp -d -t exitpanel-deploy.XXXXXX)"
 cleanup() { rm -rf "$TMP_DIR"; }
 trap cleanup EXIT
@@ -61,10 +74,16 @@ grep -q 'APP_NAME="exitpanel"' "$INSTALLER" || { echo "下载的文件不是预�
 chmod 700 "$INSTALLER"
 
 echo "[ExitPanel] 开始部署，后续参数将透传给生产部署器"
+FORWARDED_ARGS=()
+for arg in "$@"; do
+  # Tolerate a standalone backslash accidentally pasted from a multi-line
+  # shell example; it is not a meaningful deploy option.
+  [[ "$arg" == "\\" ]] || FORWARDED_ARGS+=("$arg")
+done
 if [[ -r /dev/tty ]]; then
   # curl | sudo bash consumes stdin while reading this bootstrap. Reattach
   # the real terminal so the installer can ask for MANUS_PROJECT_ID/passwords.
-  exec "$INSTALLER" --repo "$REPO_URL" --branch "$BRANCH" "$@" </dev/tty
+  exec "$INSTALLER" --repo "$REPO_URL" --branch "$BRANCH" "${FORWARDED_ARGS[@]}" </dev/tty
 else
-  exec "$INSTALLER" --repo "$REPO_URL" --branch "$BRANCH" "$@"
+  exec "$INSTALLER" --repo "$REPO_URL" --branch "$BRANCH" "${FORWARDED_ARGS[@]}"
 fi
