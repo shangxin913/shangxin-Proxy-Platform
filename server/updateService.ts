@@ -1,7 +1,7 @@
 import http from "node:http";
 
 const REPO = "shangxin913/shangxin-Proxy-Platform";
-const CURRENT = "v1.0.7";
+const CURRENT = "v1.0.8";
 const VERSION = /^v\d+\.\d+\.\d+$/;
 function versionValue(value: string) { return value.replace(/^v/, "").split(".").map(Number); }
 function newer(a: string, b: string) { const x = versionValue(a), y = versionValue(b); return x.some((n, i) => n !== y[i] && n > y[i]); }

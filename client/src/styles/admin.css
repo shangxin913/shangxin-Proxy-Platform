@@ -860,3 +860,15 @@
     transition: none;
   }
 }
+
+.page-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 720px) {
+  .page-actions { width: 100%; }
+  .page-actions > * { flex: 1 1 auto; }
+}

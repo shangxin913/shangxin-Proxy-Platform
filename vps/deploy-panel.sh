@@ -547,10 +547,10 @@ done
 if [[ "$SKIP_WORKER" == 0 ]]; then
   curl --noproxy '*' -fsS --max-time 5 "$WORKER_URL/health" >/dev/null || die "本机 worker 最终健康检查失败"
   log "app socket 与本机 worker 健康通过，已接入真实检测 worker（非模拟）"
-  warn "worker 接入不代表 Xray/VLESS 代理已可用；Xray、REALITY 密钥和真实入站端口需另行配置并实测。"
+  log "Xray 已安装并启动；请在面板订阅与入口页点击“生成并应用节点”写入 VLESS/REALITY 入站。"
 fi
 /usr/local/bin/exitpanel credentials
-log "v1.0.6 部署完成；请保存上方随机入口和密码。以后 root 可再次查看/重置："
+log "v1.0.8 部署完成；请保存上方随机入口和密码。以后 root 可再次查看/重置："
 printf '  sudo exitpanel credentials\n  sudo exitpanel reset-password\n'
 printf '安装目录：%s（0700）；生产配置 .env.production（root:root 0600）\n' "$INSTALL_DIR"
 printf '状态：sudo systemctl status exitpanel-compose\n'

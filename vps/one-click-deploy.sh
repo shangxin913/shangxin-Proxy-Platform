@@ -5,13 +5,13 @@ umask 077
 # The selected release controls BOTH installer download and application source.
 DEFAULT_REPO_URL="https://github.com/shangxin913/shangxin-Proxy-Platform.git"
 REPO_URL="${EXITPANEL_REPO_URL:-$DEFAULT_REPO_URL}"
-BRANCH="${EXITPANEL_BRANCH:-v1.0.6}"
+BRANCH="${EXITPANEL_BRANCH:-v1.0.8}"
 INSTALLER_URL="${EXITPANEL_INSTALLER_URL:-}"
 usage() {
   cat <<'EOF'
-ExitPanel v1.0.6 VPS 一键部署（默认安装/接入本机真实检测 worker）
+ExitPanel v1.0.8 VPS 一键部署（自动安装 Xray/REALITY 与本机真实检测 worker）
 直接 HTTP 默认 8899，自动检测 VPS 公网 IP，随机管理路径和强密码：
-  curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/v1.0.6/vps/one-click-deploy.sh \
+  curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/v1.0.8/vps/one-click-deploy.sh \
     | sudo bash -s --
 可选域名 HTTPS（域名不作为客户端入口 IP）：
   ... | sudo bash -s -- --domain panel.example.com --email admin@example.com
@@ -20,7 +20,7 @@ NAT / IPv6：
 
 选项透传给所选版本的 vps/deploy-panel.sh：
   --repo URL       仓库，默认 shangxin913/shangxin-Proxy-Platform
-  --branch NAME    tag/分支，默认固定 v1.0.6，不跟随 main
+  --branch NAME    tag/分支，默认固定 v1.0.8，不跟随 main
   --dir PATH       面板目录，默认 /opt/exitpanel；仅支持本机一个面板
   --port PORT      首次管理端口，默认 8899
   --listen ADDR    首次监听 IP，默认 0.0.0.0
@@ -35,7 +35,7 @@ EXITPANEL_BRANCH / EXITPANEL_REPO_URL 可显式覆盖；EXITPANEL_INSTALLER_URL
 可指定可信 HTTPS 部署器。GitHub 仓库自动使用同仓库/版本 raw 地址，其他
 仓库须同时设置 EXITPANEL_INSTALLER_URL。网络 root 脚本应先审阅。
 重复安装保留数据库、管理密码和密钥。worker 仅 loopback，不公开 18443。
-worker 接入不等于 Xray/VLESS 已可用；不自动启用 UFW/公开 worker 或数据库。
+自动安装 Xray、生成 REALITY 密钥并启动服务；实际 VLESS 端口仍需在系统防火墙和云安全组放行。
 EOF
 }
 FORWARDED_ARGS=()

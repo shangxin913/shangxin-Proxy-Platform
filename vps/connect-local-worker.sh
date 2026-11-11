@@ -16,10 +16,10 @@ ExitPanel 同机 worker 接入/快修（root，Debian/Ubuntu + systemd）
   --configure-only   安装并检查 worker、同步配置，不启动/重建 app（主部署器使用）
   --help, -h         显示帮助，无需 root
 
-从本脚本同目录使用 install.sh / agent.py / xray_config.py / exitpanel-apply。
+从本脚本同目录使用 install.sh / install-xray.sh / agent.py / xray_config.py / exitpanel-apply。
 保留数据库、管理密码、旧 AGENT_SHARED_SECRET 及其它环境变量；不 source dotenv。
 默认重建 app 并等待本机 Unix socket 和 worker 健康；不会公开 worker 端口。
-接入成功仅代表真实检测 worker 可用，不代表 Xray/VLESS 入站已可用。
+接入成功会同时安装/启动 Xray；VLESS 入站在面板点击“生成并应用节点”后写入。
 EOF
 }
 die() { printf '[ExitPanel][ERROR] %s\n' "$*" >&2; exit 1; }
@@ -45,7 +45,7 @@ fi
 [[ "$INSTALL_DIR" =~ ^/[A-Za-z0-9_./-]+$ && "$INSTALL_DIR" != / ]] || die '--dir 必须是安全的绝对目录'
 INSTALL_DIR="$(realpath -m "$INSTALL_DIR")"
 [[ "$INSTALL_DIR" != / ]] || die '不能使用根目录'
-for file in install.sh agent.py xray_config.py exitpanel-apply; do
+for file in install.sh agent.py xray_config.py exitpanel-apply install-xray.sh; do
   [[ -f "$SCRIPT_DIR/$file" ]] || die "缺少同版本文件：$SCRIPT_DIR/$file；请下载整个 v1.0.6 的 vps 目录，不能只下载本脚本"
 done
 for dependency in python3 curl systemctl; do
@@ -61,7 +61,7 @@ if [[ "$CONFIGURE_ONLY" != 1 ]]; then
 fi
 TMP_DIR="$(mktemp -d -t exitpanel-worker-connect.XXXXXX)"
 trap 'rm -rf "$TMP_DIR"' EXIT
-export INSTALL_DIR PUBLIC_HOST REPLACE_WORKER
+export INSTALL_DIR PUBLIC_HOST REPLACE_WORKER EXITPANEL_INSTALL_DIR="$INSTALL_DIR"
 # A temporary helper keeps the same strict data-only parser for preflight/sync.
 cat >"$TMP_DIR/config.py" <<'PY'
 import ipaddress, os, re, sys, tempfile
@@ -186,4 +186,4 @@ for ((attempt=1; attempt<=90; attempt++)); do
 done
 [[ "$HEALTHY" == 1 ]] || die 'app/worker 健康检查未通过；请检查 app 日志和 journalctl -u exitpanel-agent（分享前遮蔽凭据）'
 echo '[ExitPanel] app 和本机 worker 健康通过，已接入真实检测 worker；不是模拟检测。'
-echo '[ExitPanel] 注意：这不代表 Xray/VLESS 代理已可用；需单独安装 Xray、配置 REALITY 并验证真实客户端连接。'
+echo '[ExitPanel] Xray/REALITY 已初始化；请在面板“订阅与入口”点击“生成并应用节点”，再放行实际 VLESS 端口。'

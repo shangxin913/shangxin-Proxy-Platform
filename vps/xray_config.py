@@ -11,8 +11,9 @@ def build_config(entries):
     private_key = os.environ.get("REALITY_PRIVATE_KEY", "")
     server_name = os.environ.get("REALITY_SERVER_NAME", "www.microsoft.com")
     dest = os.environ.get("REALITY_DEST", "www.microsoft.com:443")
-    if not private_key:
-        raise ValueError("REALITY_PRIVATE_KEY is required")
+    short_id = os.environ.get("REALITY_SHORT_ID", "")
+    if not private_key or not short_id:
+        raise ValueError("REALITY_PRIVATE_KEY and REALITY_SHORT_ID are required")
 
     inbounds = []
     outbounds = [{"tag": "direct", "protocol": "freedom", "settings": {}}]
@@ -30,11 +31,11 @@ def build_config(entries):
             "listen": "0.0.0.0",
             "port": port,
             "protocol": "vless",
-            "settings": {"clients": [{"id": entry["entryUuid"], "email": entry.get("displayName", entry["id"])}], "decryption": "none"},
+            "settings": {"clients": [{"id": entry["entryUuid"], "flow": "xtls-rprx-vision", "email": entry.get("displayName", entry["id"])}], "decryption": "none"},
             "streamSettings": {
                 "network": "tcp",
                 "security": "reality",
-                "realitySettings": {"show": False, "dest": dest, "xver": 0, "serverNames": [server_name], "privateKey": private_key},
+                "realitySettings": {"show": False, "target": dest, "xver": 0, "serverNames": [server_name], "privateKey": private_key, "shortIds": [short_id]},
             },
             "sniffing": {"enabled": True, "destOverride": ["http", "tls", "quic"]},
         }

@@ -3,10 +3,10 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 import { adminProcedure, publicProcedure, router } from "./_core/trpc";
 import { getSessionCookieOptions } from "./_core/cookies";
-import { createExit, createNode, deleteExit, deleteNode, ensureSubscriptionToken, getExit, getExitCredential, getNode, getNodeSecret, listChecks, listEvents, listExitPlans, listExits, listNodes, setExitCheck, updateExit, updateNode, type SafeExit } from "./db";
+import { createExit, createNode, deleteExit, deleteNode, ensureSubscriptionToken, getExit, getExitCredential, getNode, getNodeSecret, listChecks, listEvents, listExitPlans, listLocalExitPlans, listExits, listNodes, setExitCheck, updateExit, updateNode, type SafeExit } from "./db";
 import { databaseReady } from "./health";
 import { makeSubscription } from "./subscriptions";
-import { applyWorkerXray, checkDirectWorker, checkWorker, validateWorkerUrl, workerHealth, type WorkerConfig } from "./workerClient";
+import { applyConfiguredWorkerXray, applyWorkerXray, checkDirectWorker, checkWorker, validateWorkerUrl, workerHealth, type WorkerConfig } from "./workerClient";
 import { getVpsAdminStatus } from "./vpsAdmin";
 import { ADMIN_COOKIE, adminCookieOptions } from "./adminSecurity";
 import { deploymentInfo, resolveEntryHost } from "./deploymentInfo";
@@ -151,6 +151,11 @@ export const appRouter = router({
         await setExitCheck(input.id, { status: "failed", errorCode: "worker_check_failed", errorMessage: "VPS worker 无法完成真实检测，请检查地址、TLS证书和共享密钥" });
         throw new TRPCError({ code: "BAD_GATEWAY", message: "真实检测失败，没有生成可用节点" });
       }
+    }),
+    applyConfig: adminProcedure.mutation(async () => {
+      const entries = await listLocalExitPlans();
+      const result = await applyConfiguredWorkerXray(entries);
+      return { ...result, activeEntries: entries.length };
     }),
   }),
   subscriptions: router({

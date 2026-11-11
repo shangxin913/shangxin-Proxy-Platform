@@ -3,7 +3,8 @@ set -euo pipefail
 umask 077
 
 STAGED="/run/exitpanel-agent/xray-next.json"
-TARGET_DIR="/etc/exitpanel/xray"
+TARGET_DIR="/usr/local/etc/xray"
+if [[ ! -d "$TARGET_DIR" ]]; then TARGET_DIR="/etc/exitpanel/xray"; fi
 TARGET="$TARGET_DIR/config.json"
 BACKUP="$TARGET_DIR/config.json.bak"
 TMP="$TARGET_DIR/config.json.tmp"
@@ -14,9 +15,10 @@ done
 
 [[ "$(id -u)" == "0" ]] || { echo "must run as root" >&2; exit 1; }
 [[ -s "$STAGED" ]] || { echo "staged config missing" >&2; exit 1; }
-install -d -o root -g root -m 0700 "$TARGET_DIR"
+XRAY_GROUP="$(getent group xray >/dev/null && echo xray || echo root)"
+install -d -o root -g "$XRAY_GROUP" -m 0750 "$TARGET_DIR"
 python3 -m json.tool "$STAGED" >/dev/null
-install -o root -g root -m 0600 "$STAGED" "$TMP"
+install -o root -g "$XRAY_GROUP" -m 0640 "$STAGED" "$TMP"
 
 if [[ -n "$XRAY_BIN" ]]; then
   "$XRAY_BIN" run -test -config "$TMP" >/tmp/exitpanel-xray-test.log 2>&1 || {

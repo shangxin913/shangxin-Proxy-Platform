@@ -22,7 +22,7 @@ fi
 [[ "$(id -u)" == 0 ]] || { echo '请以 root 执行：sudo bash vps/install.sh' >&2; exit 1; }
 [[ "$(uname -s)" == Linux ]] || { echo '仅支持 Linux' >&2; exit 1; }
 command -v systemctl >/dev/null || { echo '需要 systemd' >&2; exit 1; }
-for file in agent.py xray_config.py exitpanel-apply; do
+for file in agent.py xray_config.py exitpanel-apply update_agent.py exitpanel-update install-xray.sh; do
   [[ -f "$SCRIPT_DIR/$file" ]] || { echo "缺少同版本文件：$SCRIPT_DIR/$file" >&2; exit 1; }
 done
 missing=()
@@ -41,6 +41,8 @@ fi
 for dependency in python3 curl openssl sudo visudo; do
   command -v "$dependency" >/dev/null || { echo "依赖安装失败：$dependency" >&2; exit 1; }
 done
+
+export EXITPANEL_INSTALL_DIR="${EXITPANEL_INSTALL_DIR:-}"
 
 install -d -o root -g root -m 0700 "$CONFIG_DIR"
 # EnvironmentFile is data, not executable shell. Do not rotate an existing key.
@@ -90,6 +92,8 @@ default('AGENT_PLAN_FILE', '/var/lib/exitpanel-agent/plan.json')
 default('REALITY_SERVER_NAME', 'www.microsoft.com')
 default('REALITY_DEST', 'www.microsoft.com:443')
 default('REALITY_PRIVATE_KEY', '')
+default('REALITY_PUBLIC_KEY', '')
+default('REALITY_SHORT_ID', '')
 fd, temporary = tempfile.mkstemp(prefix='.agent.env.', dir=os.path.dirname(path))
 try:
     with os.fdopen(fd, 'w', encoding='utf-8') as output:
@@ -102,6 +106,8 @@ finally:
 print('http://' + ('[' + host + ']' if ':' in host else host) + ':' + str(int(port)))
 PY
 )" || { echo 'worker 配置校验失败，服务未被重装。' >&2; exit 1; }
+
+bash "$SCRIPT_DIR/install-xray.sh"
 
 id -u "$APP_NAME" >/dev/null 2>&1 || useradd --system --home-dir "$INSTALL_DIR" --create-home --shell /usr/sbin/nologin "$APP_NAME"
 install -d -o root -g root -m 0755 "$INSTALL_DIR"
@@ -183,4 +189,4 @@ echo "ExitPanel 检测 worker 已启动：$WORKER_URL（仅 loopback）"
 echo "检测接口：POST $WORKER_URL/v1/check"
 echo "配置接口：POST $WORKER_URL/v1/config/apply"
 echo "共享密钥保存在 $ENV_FILE；已保留现有密钥，不在终端输出。"
-echo 'worker 健康不代表 Xray 代理已可用；Xray 二进制、REALITY 密钥及入站端口需另行配置。'
+echo 'Xray 已安装并启动；REALITY 密钥保存在 root/worker 受限环境，待面板生成并应用出口后监听实际 VLESS 入口端口。'

@@ -1,26 +1,26 @@
-# ExitPanel VPS 部署与本机 worker（v1.0.6）
+# ExitPanel VPS 部署、Xray/REALITY 与本机 worker（v1.0.8）
 
 默认在执行安装命令的 **同一台 Debian/Ubuntu VPS** 上部署面板、API、MySQL 和真实检测 worker。客户端入口使用该 VPS 的实际公网 IP，不使用面板域名或第三方 SOCKS5 的落地 IP。VPS 使用独立管理员密码登录，不需要 Manus 项目 ID、账号或 OAuth。
 
-> worker 接入成功仅代表面板可以调用真实检测服务，**不代表 Xray/VLESS/REALITY 代理已经可用**。安装器不会下载 Xray、生成 REALITY 私钥或自动创建公网代理入站。
+> v1.0.8 安装器会自动安装 Xray、生成并保护 REALITY 密钥。面板“订阅与入口”中的“生成并应用节点”会创建 VLESS/REALITY 入站和 SOCKS5/direct 出站；实际客户端端口仍需管理员放行并测试。
 
-## 一键部署：固定 v1.0.6
+## 一键部署：固定 v1.0.8
 
 需要 root、systemd、amd64/arm64 架构和可访问 GitHub/Docker 官方仓库的网络。运行网络 root 脚本前建议先下载审阅。
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/v1.0.6/vps/deploy-v1.0.6.sh \
+curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/v1.0.8/vps/deploy-v1.0.8.sh \
   | sudo bash -s --
 ```
 
 也可以使用同标签的常规一键入口：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/v1.0.6/vps/one-click-deploy.sh \
+curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/v1.0.8/vps/one-click-deploy.sh \
   | sudo bash -s --
 ```
 
-默认仓库固定为 `https://github.com/shangxin913/shangxin-Proxy-Platform.git`，默认版本为 **tag `v1.0.6`**，不隐式跟随 `main`。主部署器从 tag 解析完整 Git SHA，校验克隆/拉取结果，并将公开的仓库、ref、SHA 记录在安装目录的 `source-version.tsv`；重复部署同标签若发现 tag 被移动会停止。tag 尚未发布、SHA 校验失败或源码有本地修改时不会回退 `main` 或强行覆盖。
+默认仓库固定为 `https://github.com/shangxin913/shangxin-Proxy-Platform.git`，默认版本为 **tag `v1.0.8`**，不隐式跟随 `main`。主部署器从 tag 解析完整 Git SHA，校验克隆/拉取结果，并将公开的仓库、ref、SHA 记录在安装目录的 `source-version.tsv`；重复部署同标签若发现 tag 被移动会停止。tag 尚未发布、SHA 校验失败或源码有本地修改时不会回退 `main` 或强行覆盖。
 
 默认安装目录 `/opt/exitpanel`；使用 Docker 官方 apt 仓库与 Compose v2，保留已有 Docker 引擎，不自动卸载可能影响其他服务的冲突包。部署顺序为：安全更新源码、保存/迁移生产配置、安装并检查本机 worker、同步 URL/HMAC、启动 Compose，最后检查应用 Unix socket 与 worker 健康。
 
@@ -47,7 +47,7 @@ HTTP 不加密管理通信。随机路径不能代替 TLS；生产环境请用�
 先将 DNS 指向本机，在现有防火墙和安全组核对 80/443：
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/v1.0.6/vps/deploy-v1.0.6.sh \
+curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/v1.0.8/vps/deploy-v1.0.8.sh \
   | sudo bash -s -- --domain panel.example.com --email admin@example.com
 ```
 
@@ -60,12 +60,12 @@ curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform
 ```bash
 bash vps/deploy-panel.sh --help
 bash vps/one-click-deploy.sh --help
-bash vps/deploy-v1.0.6.sh --help
+bash vps/deploy-v1.0.8.sh --help
 ```
 
-主部署器支持 `--repo`、`--branch`（默认 tag `v1.0.6`）、`--dir`、`--port`、`--listen`、`--host`、`--domain`、`--email`、`--skip-worker`、`--replace-worker`。`--port`/`--listen` 只作为首次数据库初始化值；已有管理端口、监听、路径、密码以数据库为准，重复部署不会覆盖。
+主部署器支持 `--repo`、`--branch`（默认 tag `v1.0.8`）、`--dir`、`--port`、`--listen`、`--host`、`--domain`、`--email`、`--skip-worker`、`--replace-worker`。`--port`/`--listen` 只作为首次数据库初始化值；已有管理端口、监听、路径、密码以数据库为准，重复部署不会覆盖。
 
-`--branch` 显式选择其他版本时，一键入口同时下载该版本的部署器并选择该版本源码；版本形如 `v1.0.6` 时主部署器要求它是真正的 tag。`--repo` 使用其他 GitHub HTTPS 仓库时，下载地址自动对应同仓库和版本；其他仓库需提供可信 HTTPS `EXITPANEL_INSTALLER_URL`。常规一键入口也支持显式 `EXITPANEL_BRANCH`/`EXITPANEL_REPO_URL`；固定 `deploy-v1.0.6.sh` 入口始终以 v1.0.6 为默认，除非命令行显式 `--branch`。
+`--branch` 显式选择其他版本时，一键入口同时下载该版本的部署器并选择该版本源码；版本形如 `v1.0.6` 时主部署器要求它是真正的 tag。`--repo` 使用其他 GitHub HTTPS 仓库时，下载地址自动对应同仓库和版本；其他仓库需提供可信 HTTPS `EXITPANEL_INSTALLER_URL`。常规一键入口也支持显式 `EXITPANEL_BRANCH`/`EXITPANEL_REPO_URL`；固定 `deploy-v1.0.8.sh` 入口始终以 v1.0.8 为默认，除非命令行显式 `--branch`。
 
 `--skip-worker` 只跳过本机安装/接入，不清空已有远程 worker 配置。**未另配可用的真实 worker 时，真实检测不可用，不会模拟成功。** 选择缺少同机接入工具的旧版本时需显式跳过。已有非 loopback/远程 worker 配置时，默认接入流程报冲突停止；只有明确 `--replace-worker` 才允许改成本机 worker。
 
@@ -114,7 +114,7 @@ curl --noproxy '*' http://127.0.0.1:18443/health
 
 默认监听 `127.0.0.1:18443`。`AGENT_HOST` **只允许** `localhost`、`127.0.0.1` 或 `::1`，其他值会拒绝安装；`AGENT_PORT` 可为 1–65535。健康检查和同步 URL 使用实际 host/port，IPv6 URL 正确加方括号，不固定假定 18443，也不经过代理变量。
 
-重装执行 daemon-reload、enable 与 **restart**，确保新 worker 代码生效。systemd 的 `ReadWritePaths` 允许 `/run/exitpanel-agent` 临时文件、`/var/lib/exitpanel-agent` 持久计划以及 root helper 的 `/etc/exitpanel/xray` 子目录，其余文件系统维持严格保护。helper 使用 root 所有的脚本及窄范围 NOPASSWD sudoers，先经 visudo 校验；为允许该受限 sudo helper 提权，服务不设置 `NoNewPrivileges=yes`。不把安装目录或 worker API 暴露给 Nginx。
+重装执行 daemon-reload、enable 与 **restart**，确保新 worker 代码生效。systemd 的 `ReadWritePaths` 允许 `/run/exitpanel-agent` 临时文件、`/var/lib/exitpanel-agent` 持久计划以及 root helper 的 Xray配置目录，其余文件系统维持严格保护。helper 使用 root 所有的脚本及窄范围 NOPASSWD sudoers，先经 visudo 校验；为允许该受限 sudo helper 提权，服务不设置 `NoNewPrivileges=yes`。不把安装目录或 worker API 暴露给 Nginx。
 
 worker API 使用带时间戳的 HMAC-SHA256：签名内容为 `timestamp + 换行 + 原始 JSON body`，请求头 `X-ExitPanel-Timestamp` 和 `X-ExitPanel-Signature`。真实 SOCKS5 检测为 `POST /v1/check`，配置应用为 `POST /v1/config/apply`；密钥只由面板服务端使用，不发送给客户端。面板 app 已是 `network_mode: host`，所以 loopback worker 可从容器直接访问，不需要公开 18443 或额外端口映射。
 
@@ -147,7 +147,7 @@ sudo journalctl -u exitpanel-agent -n 80 --no-pager
 
 worker 将临时 Xray 配置写到 `/run/exitpanel-agent/xray-next.json`，再由 `/usr/local/sbin/exitpanel-apply` 做 JSON/Xray 校验、备份、原子替换与 reload；失败恢复旧配置。有效计划保存在 `/var/lib/exitpanel-agent/plan.json`，每 30 秒清理到期入口并重新应用。
 
-需要另行安装 `/usr/local/bin/xray` 或 `/usr/bin/xray`，配置 xray.service 使用 `/etc/exitpanel/xray/config.json`，并在 `agent.env` 中配置 REALITY_PRIVATE_KEY、REALITY_SERVER_NAME、REALITY_DEST。生成器按每个出口建立独立 VLESS 入站端口和 SOCKS5/direct 出站，过期或不在订阅范围的入口不会进入新计划。配置落盘或 worker health 成功并不证明 xray.service 已运行，必须测试真实客户端连通。
+v1.0.8 会通过固定提交的官方 Xray 安装器安装 `/usr/local/bin/xray`，在 `/usr/local/etc/xray/config.json` 建立受限配置，并生成 REALITY_PRIVATE_KEY、REALITY_PUBLIC_KEY、REALITY_SHORT_ID、REALITY_SERVER_NAME 和 REALITY_DEST。检测通过后，在面板“订阅与入口”点击“生成并应用节点”，生成器按每个出口建立 VLESS/REALITY 入站和 SOCKS5/direct 出站；订阅会携带 pbk、sid、sni、fp 和 Vision flow。
 
 多 VPS 节点可保存 endpoint、worker 端口、HMAC、direct/reverse 隧道模式和公开入口地址，出口用 nodeId 绑定节点；远程节点入口不强制改为面板本机 IP。跨机 worker 应用可信内网/隧道，不将本机安装器的 worker 监听改成公网。反向隧道模板见 [reverse-tunnel.service.example](./reverse-tunnel.service.example)，使用前固定 SSH host key、专用密钥、限制转发目标与防火墙，不开放任意 GatewayPorts。
 

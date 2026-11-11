@@ -104,6 +104,21 @@ export async function listExitPlans(nodeId: string) {
   })));
 }
 
+export async function listLocalExitPlans() {
+  const db = await getDb();
+  if (!db) throw new Error("Database is not available");
+  const now = new Date();
+  const rows = await db.select().from(exits).where(and(isNull(exits.nodeId), eq(exits.enabled, 1), eq(exits.subscribeEnabled, 1), eq(exits.status, "passed"), or(isNull(exits.expiresAt), gt(exits.expiresAt, now))));
+  return Promise.all(rows.map(async (exit) => ({
+    id: exit.id,
+    displayName: exit.displayName,
+    entryPort: exit.entryPort,
+    entryUuid: exit.entryUuid,
+    expiresAt: exit.expiresAt ? exit.expiresAt.toISOString() : null,
+    upstream: exit.type === "direct" ? { type: "direct" as const } : { type: "socks5" as const, host: exit.upstreamHost || "", port: exit.upstreamPort || 0, username: exit.username || "", password: exit.passwordEncrypted ? decryptSecret(exit.passwordEncrypted) : "" },
+  })));
+}
+
 export type NodeInput = { displayName: string; endpoint: string; agentPort: number; tunnelMode?: "direct" | "reverse"; publicEntryHost?: string; sharedSecret?: string };
 
 export async function createNode(input: NodeInput) {
