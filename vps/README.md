@@ -4,6 +4,17 @@
 
 ## 一键部署管理面板和后端
 
+如果 VPS 可以访问 GitHub，推荐直接执行引导脚本。它会通过 HTTPS 下载仓库中的版本化部署器，默认部署 `shangxin913/shangxin-Proxy-Platform` 的 `main` 分支：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/shangxin913/shangxin-Proxy-Platform/main/vps/one-click-deploy.sh \
+  | sudo bash -s -- \
+      --domain panel.example.com \
+      --email admin@example.com
+```
+
+脚本会交互式询问 `MANUS_PROJECT_ID`，自动生成会话签名密钥和 MySQL 密码，并将敏感配置保存到 `/opt/exitpanel/.env.production`。如果你使用自己的仓库或分支，可以显式传入 `--repo` 和 `--branch`。首次生产部署前，应先确认 DNS 已指向 VPS，且 SSH 服务允许通过 UFW；脚本不会自动开放 Xray/VLESS 端口。
+
 生产面板部署脚本面向 Debian/Ubuntu VPS，会安装 Docker、Docker Compose、MySQL 8.4、Nginx，并以 systemd 管理 Docker Compose。脚本只提示输入 `MANUS_PROJECT_ID`，本地会话签名密钥 `MANUS_JWT_SECRET` 会自动生成；脚本自动写入 `MANUS_OAUTH_PORTAL_URL=https://manus.im`，并在启动后检查公开配置中确实包含 OAuth 地址。数据库密码会自动生成并保存到 `/opt/exitpanel/.env.production`（权限 0600）。生产代码必须放在 VPS 可访问的 Git 仓库中，不能使用当前 Sandbox 的内部 Git 远端。
 
 ```bash
