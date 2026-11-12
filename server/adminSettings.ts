@@ -6,7 +6,7 @@ import { getDb, getUserByOpenId, upsertUser } from "./db";
 import { decryptSecret, encryptSecret } from "./crypto";
 import { hashPassword, isVps, sessionKey, validListenAddress, validManagementPath, verifyPassword } from "./adminSecurity";
 
-export const APP_VERSION = "v1.0.10";
+export const APP_VERSION = "v1.0.11";
 const LOCAL_ADMIN = "exitpanel:password-admin";
 
 export const settingsInput = z.object({

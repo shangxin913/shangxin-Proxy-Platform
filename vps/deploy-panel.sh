@@ -550,7 +550,7 @@ if [[ "$SKIP_WORKER" == 0 ]]; then
   log "Xray 已安装并启动；请在面板订阅与入口页点击“生成并应用节点”写入 VLESS/REALITY 入站。"
 fi
 /usr/local/bin/exitpanel credentials
-log "v1.0.10 部署完成；请保存上方随机入口和密码。以后 root 可再次查看/重置："
+log "v1.0.11 部署完成；请保存上方随机入口和密码。以后 root 可再次查看/重置："
 printf '  sudo exitpanel credentials\n  sudo exitpanel reset-password\n'
 printf '安装目录：%s（0700）；生产配置 .env.production（root:root 0600）\n' "$INSTALL_DIR"
 printf '状态：sudo systemctl status exitpanel-compose\n'
