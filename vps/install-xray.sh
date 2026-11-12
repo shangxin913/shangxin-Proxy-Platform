@@ -23,16 +23,19 @@ if [[ -s "$CONFIG" && ! -f /etc/exitpanel/xray-managed ]]; then
   exit 1
 fi
 if [[ ! -s "$CONFIG" || ! -f /etc/exitpanel/xray-managed ]]; then
-  KEY_OUTPUT="$($XRAY x25519)"
-  PRIVATE="$(printf '%s\n' "$KEY_OUTPUT" | awk -F': ' '/^(Private key|PrivateKey):/ {print $2; exit}')"
+  KEY_OUTPUT="$($XRAY x25519 | tr -d '\r')"
+  PRIVATE="$(printf '%s\n' "$KEY_OUTPUT" | sed -nE 's/^[[:space:]]*(Private key|PrivateKey)[[:space:]]*:[[:space:]]*([^[:space:]]+).*$/\2/p' | head -n 1)"
   # Xray v26 renamed the public-key field to Password; it is still the
   # client-facing REALITY public key. Older releases print Public key.
-  PUBLIC="$(printf '%s\n' "$KEY_OUTPUT" | awk -F': ' '/^(Public key|PublicKey|Password):/ {print $2; exit}')"
+  PUBLIC="$(printf '%s\n' "$KEY_OUTPUT" | sed -nE 's/^[[:space:]]*(Public key|PublicKey|Password)[[:space:]]*:[[:space:]]*([^[:space:]]+).*$/\2/p' | head -n 1)"
   if [[ -z "$PUBLIC" && -n "$PRIVATE" ]]; then
-    DERIVED_OUTPUT="$($XRAY x25519 -i "$PRIVATE")"
-    PUBLIC="$(printf '%s\n' "$DERIVED_OUTPUT" | awk -F': ' '/^(Public key|PublicKey|Password):/ {print $2; exit}')"
+    DERIVED_OUTPUT="$($XRAY x25519 -i "$PRIVATE" | tr -d '\r')"
+    PUBLIC="$(printf '%s\n' "$DERIVED_OUTPUT" | sed -nE 's/^[[:space:]]*(Public key|PublicKey|Password)[[:space:]]*:[[:space:]]*([^[:space:]]+).*$/\2/p' | head -n 1)"
   fi
-  [[ "$PRIVATE" =~ ^[A-Za-z0-9_-]+$ && "$PUBLIC" =~ ^[A-Za-z0-9_-]+$ ]] || { echo 'REALITY密钥生成失败' >&2; exit 1; }
+  if [[ ! "$PRIVATE" =~ ^[A-Za-z0-9_-]+$ || ! "$PUBLIC" =~ ^[A-Za-z0-9_-]+$ ]]; then
+    printf 'REALITY密钥生成失败：xray输出未识别（private长度=%s，public长度=%s）\n' "${#PRIVATE}" "${#PUBLIC}" >&2
+    exit 1
+  fi
   SHORT_ID="$(openssl rand -hex 8)"
   python3 - "$ENV_FILE" "$PRIVATE" "$PUBLIC" "$SHORT_ID" <<'PY'
 import os, re, sys, tempfile
