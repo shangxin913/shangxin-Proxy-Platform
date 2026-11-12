@@ -21,3 +21,7 @@
 - [x] VLESS 入站使用 XTLS Vision flow；REALITY 和 SOCKS5 凭据由 VPS 端配置生成，客户端链接不包含上游 SOCKS5 密码。
 - [x] 部署文档和终端提示要求管理员放行实际 VLESS 入站端口；不自动开放 worker、数据库或 SSH 端口。
 - [ ] 在目标 VPS 实测一个通过生成链接导入 v2rayN/v2rayNG 的公网连接，并根据实际云厂商安全组确认入站端口。
+
+## v1.0.9 修复
+- [x] 兼容 Xray v26 的 `PrivateKey` / `Password` / `Hash32` x25519 输出格式；其中 `Password` 作为 REALITY 客户端公钥使用。
+- [x] v1.0.8 保持不变，发布 v1.0.9 固定部署入口修复已部署失败问题。
