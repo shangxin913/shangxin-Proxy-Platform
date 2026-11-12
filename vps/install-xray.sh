@@ -25,13 +25,33 @@ fi
 if [[ ! -s "$CONFIG" || ! -f /etc/exitpanel/xray-managed ]]; then
   KEY_OUTPUT="$($XRAY x25519 2>&1 | tr -d '\r')"
   PRIVATE="$(printf '%s\n' "$KEY_OUTPUT" | sed -nE 's/^[[:space:]]*(Private key|PrivateKey)[[:space:]]*:[[:space:]]*([^[:space:]]+).*$/\2/p' | head -n 1)"
-  # Xray v26 renamed the public-key field to Password; it is still the
-  # client-facing REALITY public key. Older releases print Public key.
-  PUBLIC="$(printf '%s\n' "$KEY_OUTPUT" | sed -nE 's/^[[:space:]]*(Public key|PublicKey|Password)[[:space:]]*:[[:space:]]*([^[:space:]]+).*$/\2/p' | head -n 1)"
-  if [[ -z "$PUBLIC" && -n "$PRIVATE" ]]; then
-    DERIVED_OUTPUT="$($XRAY x25519 -i "$PRIVATE" 2>&1 | tr -d '\r')"
-    PUBLIC="$(printf '%s\n' "$DERIVED_OUTPUT" | sed -nE 's/^[[:space:]]*(Public key|PublicKey|Password)[[:space:]]*:[[:space:]]*([^[:space:]]+).*$/\2/p' | head -n 1)"
-  fi
+  # Derive the client-facing REALITY key with RFC 7748, instead of relying
+  # on Xray's changing human-readable public-key label.
+  PUBLIC="$(PRIVATE="$PRIVATE" python3 - <<'PY2'
+import base64, os
+p = 2 ** 255 - 19
+k = bytearray(base64.urlsafe_b64decode(os.environ['PRIVATE'] + '==='))
+if len(k) != 32: raise SystemExit(1)
+k[0] &= 248; k[31] &= 127; k[31] |= 64
+u = 9
+x2, z2, x3, z3, swap = 1, 0, u, 1, 0
+for t in range(254, -1, -1):
+    bit = (k[t >> 3] >> (t & 7)) & 1
+    swap ^= bit
+    if swap: x2, x3 = x3, x2; z2, z3 = z3, z2
+    swap = bit
+    a = (x2 + z2) % p; aa = a * a % p
+    b = (x2 - z2) % p; bb = b * b % p
+    e = (aa - bb) % p
+    c = (x3 + z3) % p; d = (x3 - z3) % p
+    da = d * a % p; cb = c * b % p
+    x3 = (da + cb) ** 2 % p; z3 = u * (da - cb) ** 2 % p
+    x2 = aa * bb % p; z2 = e * (aa + 121665 * e) % p
+if swap: x2, x3 = x3, x2; z2, z3 = z3, z2
+public = (x2 * pow(z2, p - 2, p) % p).to_bytes(32, 'little')
+print(base64.urlsafe_b64encode(public).decode().rstrip('='))
+PY2
+)"
   if [[ ! "$PRIVATE" =~ ^[A-Za-z0-9_-]+$ || ! "$PUBLIC" =~ ^[A-Za-z0-9_-]+$ ]]; then
     printf 'REALITY密钥生成失败：xray输出未识别（private长度=%s，public长度=%s）\n' "${#PRIVATE}" "${#PUBLIC}" >&2
     exit 1
